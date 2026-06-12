@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model UserSettings {
+  id            String   @id @default(cuid())
+  githubToken   String
+  deepseekKey   String
+  cronSchedule  String   @default("0 */12 * * *")
+  maxCommitsDay Int      @default(1)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Repository {
+  id            String      @id @default(cuid())
+  owner         String
+  name          String
+  fullName      String      @unique
+  enabled       Boolean     @default(false)
+  lastScannedAt DateTime?
+  lastScannedSha String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  commits       CommitLog[]
+}
+
+model CommitLog {
+  id            String     @id @default(cuid())
+  repositoryId  String
+  repository    Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  filePath      String
+  commitSha     String?
+  commitMessage String
+  diffSummary   String
+  linesChanged  Int
+  status        CommitStatus @default(PENDING)
+  errorMessage  String?
+  createdAt     DateTime   @default(now())
+
+  @@index([repositoryId])
+  @@index([createdAt])
+  @@index([repositoryId, createdAt])
+}
+
+enum CommitStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  SKIPPED
+}

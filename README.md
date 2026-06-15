@@ -10,7 +10,7 @@ An autonomous AI agent that automatically scans your GitHub repositories and gen
 
 1. **Deploy** to Vercel and attach a **Neon Postgres** database.
 2. Set your `DATABASE_URL` and push the schema using `npx prisma db push`.
-3. Open your live app, input your **DeepSeek API Key** & **GitHub Token** in the Settings UI.
+3. Open your live app, input your **DeepSeek API Key**, grab your free DeepSeek-V4-Flash API key from [NVIDIA NIM](https://build.nvidia.com/deepseek-ai/deepseek-v4-flash) and plug it into the dashboard & **GitHub Token** in the Settings UI.
 4. Add repositories and set a daily commit limit.
 5. *Magic.* The app automatically pushes high-quality AI commits to your repos every day!
 

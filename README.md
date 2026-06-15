@@ -1,4 +1,4 @@
-# Git Auto-Commit (No BS) 🤖✨
+# Git Auto-Commit (No BS) 🤖
 
 An autonomous AI agent that automatically scans your GitHub repositories and generates intelligent, context-aware code commits every single day. Powered by DeepSeek via NVIDIA NIM and perfectly automated via Vercel Cron.
 

@@ -12,24 +12,21 @@ type Repo = {
   lastScannedAt: Date | null;
 };
 
-type Props = {
-  repos: Repo[];
-};
+type Props = { repos: Repo[] };
 
-function relativeTime(date: Date): string {
+function relTime(date: Date): string {
   const diff = Date.now() - new Date(date).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
 
 export function RepoGrid({ repos: initial }: Props) {
   const [repos, setRepos] = useState<Repo[]>(initial);
-  const [syncMsg, setSyncMsg] = useState<string | null>(null);
-  const [syncErr, setSyncErr] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<{ msg: string; kind: "ok" | "err" } | null>(null);
   const [filter, setFilter] = useState("");
   const [isPending, startTransition] = useTransition();
 
@@ -37,13 +34,11 @@ export function RepoGrid({ repos: initial }: Props) {
     startTransition(async () => {
       const res = await syncRepos();
       if (res.ok) {
-        setSyncErr(false);
-        setSyncMsg(`Synced ${res.data} repos from GitHub.`);
-        setTimeout(() => setSyncMsg(null), 3500);
+        setSyncMsg({ msg: `>> SYNCED ${res.data} REPOS FROM ORIGIN`, kind: "ok" });
+        setTimeout(() => setSyncMsg(null), 4000);
         window.location.reload();
       } else {
-        setSyncErr(true);
-        setSyncMsg(res.error);
+        setSyncMsg({ msg: `ERR: ${res.error}`, kind: "err" });
         setTimeout(() => setSyncMsg(null), 4000);
       }
     });
@@ -71,43 +66,46 @@ export function RepoGrid({ repos: initial }: Props) {
   const enabledCount = repos.filter((r) => r.enabled).length;
 
   return (
-    <section className="repo-section">
+    <section className="panel panel-inner-corners">
       <div className="panel-header">
-        <span className="panel-icon">⬡</span>
-        <h2 className="panel-title">Repositories</h2>
-        <span className="repo-count">
-          {enabledCount}/{repos.length} active
+        <span className="panel-header-bracket">[</span>
+        <span className="panel-header-label">REPO_INDEX</span>
+        <span className="panel-header-bracket">]</span>
+        <span className="panel-header-num">02</span>
+      </div>
+
+      <div className="repo-controls">
+        <span className="repo-count-chip">
+          {enabledCount}/{repos.length} ACTIVE
         </span>
-        <div className="repo-header-actions">
-          <input
-            type="search"
-            className="search-input"
-            placeholder="filter repos…"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          />
-          <button
-            type="button"
-            className="sync-btn"
-            onClick={handleSync}
-            disabled={isPending}
-          >
-            {isPending ? "syncing…" : "↻ sync"}
-          </button>
-        </div>
+        <input
+          type="search"
+          className="search-input"
+          placeholder="> filter..."
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+        <button
+          type="button"
+          className="sync-btn"
+          onClick={handleSync}
+          disabled={isPending}
+        >
+          {isPending ? "SYNCING..." : "FETCH_REPOS"}
+        </button>
       </div>
 
       {syncMsg && (
-        <div className={`sync-msg ${syncErr ? "err" : "ok"}`}>{syncMsg}</div>
+        <div className={`sync-flash ${syncMsg.kind}`}>{syncMsg.msg}</div>
       )}
 
       {repos.length === 0 ? (
         <div className="empty-repos">
-          <p>No repositories found.</p>
-          <p>Save your GitHub PAT above then click sync.</p>
+          <p>NO REPOS FOUND</p>
+          <p>SAVE PAT → FETCH_REPOS</p>
         </div>
       ) : (
-        <div className="repo-grid">
+        <div className="repo-grid-wrap">
           {filtered.map((repo) => (
             <div
               key={repo.id}
@@ -117,22 +115,24 @@ export function RepoGrid({ repos: initial }: Props) {
               <div className="repo-card-top">
                 <span className="repo-name">{repo.name}</span>
                 <span
-                  className={`repo-toggle ${repo.enabled ? "on" : "off"}`}
+                  className={`pixel-toggle ${repo.enabled ? "on" : "off"}`}
                   aria-label={repo.enabled ? "Enabled" : "Disabled"}
                 />
               </div>
               <div className="repo-card-bottom">
-                <span className="repo-owner">{repo.owner}</span>
+                <span className="repo-owner">{repo.owner}/</span>
                 {repo.lastScannedAt && (
                   <span className="repo-scanned">
-                    scanned {relativeTime(repo.lastScannedAt)}
+                    {relTime(repo.lastScannedAt)}
                   </span>
                 )}
               </div>
             </div>
           ))}
           {filtered.length === 0 && filter && (
-            <p className="no-match">No repos match "{filter}"</p>
+            <p style={{ padding: "16px", color: "var(--text-muted)", fontSize: "10px", fontFamily: "var(--font-mono)" }}>
+              NO MATCH: "{filter}"
+            </p>
           )}
         </div>
       )}

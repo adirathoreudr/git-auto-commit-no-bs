@@ -1,22 +1,28 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono, Space_Grotesk } from "next/font/google";
+import { Share_Tech_Mono, VT323, Press_Start_2P } from "next/font/google";
 import "./globals.css";
 
-const jetbrainsMono = JetBrains_Mono({
+const shareTechMono = Share_Tech_Mono({
   variable: "--font-mono",
   subsets: ["latin"],
-  weight: ["400", "500", "700"],
+  weight: "400",
 });
 
-const spaceGrotesk = Space_Grotesk({
-  variable: "--font-sans",
+const vt323 = VT323({
+  variable: "--font-display",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: "400",
+});
+
+const pressStart2P = Press_Start_2P({
+  variable: "--font-pixel",
+  subsets: ["latin"],
+  weight: "400",
 });
 
 export const metadata: Metadata = {
-  title: "RepoAgent — Autonomous Refactoring",
-  description: "Autonomous GitHub refactoring agent powered by DeepSeek and Vercel Cron",
+  title: "REPO_AGENT // AUTONOMOUS REFACTOR SYS",
+  description: "Autonomous GitHub refactoring agent. DeepSeek-powered. Git-native. Vercel-hosted.",
 };
 
 export default function RootLayout({
@@ -25,7 +31,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${spaceGrotesk.variable} ${jetbrainsMono.variable}`}
+      className={`${shareTechMono.variable} ${vt323.variable} ${pressStart2P.variable}`}
     >
       <body>{children}</body>
     </html>

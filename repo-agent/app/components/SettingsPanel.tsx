@@ -25,17 +25,15 @@ export function SettingsPanel({ initial }: Props) {
   const [maxCommitsDay, setMaxCommitsDay] = useState(
     initial?.maxCommitsDay ?? 1
   );
-  const [showGhToken, setShowGhToken] = useState(false);
-  const [showDsKey, setShowDsKey] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [statusKind, setStatusKind] = useState<"ok" | "err">("ok");
+  const [showGh, setShowGh] = useState(false);
+  const [showDs, setShowDs] = useState(false);
+  const [flash, setFlash] = useState<{ msg: string; kind: "ok" | "err" } | null>(null);
   const [verifiedLogin, setVerifiedLogin] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  function flash(msg: string, kind: "ok" | "err") {
-    setStatus(msg);
-    setStatusKind(kind);
-    setTimeout(() => setStatus(null), 3500);
+  function showFlash(msg: string, kind: "ok" | "err") {
+    setFlash({ msg, kind });
+    setTimeout(() => setFlash(null), 3500);
   }
 
   function handleSave() {
@@ -47,11 +45,8 @@ export function SettingsPanel({ initial }: Props) {
         maxCommitsDay,
       };
       const res = await saveSettings(payload);
-      if (res.ok) {
-        flash("Settings saved.", "ok");
-      } else {
-        flash(res.error, "err");
-      }
+      if (res.ok) showFlash("// CONFIG SAVED OK", "ok");
+      else showFlash(`ERR: ${res.error}`, "err");
     });
   }
 
@@ -60,30 +55,32 @@ export function SettingsPanel({ initial }: Props) {
       const res = await verifyGithubToken(githubToken);
       if (res.ok) {
         setVerifiedLogin(res.data);
-        flash(`Authenticated as @${res.data}`, "ok");
+        showFlash(`AUTH OK >> @${res.data}`, "ok");
       } else {
         setVerifiedLogin(null);
-        flash(res.error, "err");
+        showFlash(`AUTH FAIL: ${res.error}`, "err");
       }
     });
   }
 
   return (
-    <section className="settings-panel">
+    <section className="panel panel-inner-corners">
       <div className="panel-header">
-        <span className="panel-icon">⚙</span>
-        <h2 className="panel-title">Configuration</h2>
+        <span className="panel-header-bracket">[</span>
+        <span className="panel-header-label">SYS_CONFIG</span>
+        <span className="panel-header-bracket">]</span>
         {verifiedLogin && (
-          <span className="verified-badge">✓ @{verifiedLogin}</span>
+          <span className="verified-badge">@{verifiedLogin}</span>
         )}
+        <span className="panel-header-num">01</span>
       </div>
 
-      <div className="fields-grid">
+      <div className="settings-body">
         <div className="field-group">
-          <label className="field-label">GitHub PAT</label>
+          <label className="field-label">GITHUB_PAT</label>
           <div className="input-row">
             <input
-              type={showGhToken ? "text" : "password"}
+              type={showGh ? "text" : "password"}
               className="field-input"
               placeholder="ghp_xxxxxxxxxxxx"
               value={githubToken}
@@ -92,11 +89,12 @@ export function SettingsPanel({ initial }: Props) {
             />
             <button
               type="button"
-              className="toggle-vis"
-              onClick={() => setShowGhToken((v) => !v)}
+              className="icon-btn"
+              onClick={() => setShowGh((v) => !v)}
               aria-label="Toggle visibility"
+              title={showGh ? "Hide" : "Show"}
             >
-              {showGhToken ? "○" : "●"}
+              {showGh ? "○" : "●"}
             </button>
             <button
               type="button"
@@ -104,16 +102,16 @@ export function SettingsPanel({ initial }: Props) {
               onClick={handleVerify}
               disabled={!githubToken || isPending}
             >
-              verify
+              VERIFY
             </button>
           </div>
         </div>
 
         <div className="field-group">
-          <label className="field-label">DeepSeek / NVIDIA NIM Key</label>
+          <label className="field-label">DEEPSEEK_KEY / NIM_API</label>
           <div className="input-row">
             <input
-              type={showDsKey ? "text" : "password"}
+              type={showDs ? "text" : "password"}
               className="field-input"
               placeholder="nvapi-xxxxxxxxxxxx"
               value={deepseekKey}
@@ -122,31 +120,31 @@ export function SettingsPanel({ initial }: Props) {
             />
             <button
               type="button"
-              className="toggle-vis"
-              onClick={() => setShowDsKey((v) => !v)}
+              className="icon-btn"
+              onClick={() => setShowDs((v) => !v)}
               aria-label="Toggle visibility"
             >
-              {showDsKey ? "○" : "●"}
+              {showDs ? "○" : "●"}
             </button>
           </div>
         </div>
 
         <div className="field-row-pair">
           <div className="field-group">
-            <label className="field-label">Cron Schedule</label>
+            <label className="field-label">CRON_EXPR</label>
             <input
               type="text"
-              className="field-input mono"
+              className="field-input"
               value={cronSchedule}
               onChange={(e) => setCronSchedule(e.target.value)}
               spellCheck={false}
             />
           </div>
           <div className="field-group">
-            <label className="field-label">Max Commits / Day</label>
+            <label className="field-label">MAX_COMMITS/DAY</label>
             <input
               type="number"
-              className="field-input mono"
+              className="field-input"
               min={1}
               max={20}
               value={maxCommitsDay}
@@ -157,10 +155,8 @@ export function SettingsPanel({ initial }: Props) {
       </div>
 
       <div className="panel-footer">
-        {status && (
-          <span className={`status-msg ${statusKind === "ok" ? "ok" : "err"}`}>
-            {status}
-          </span>
+        {flash && (
+          <span className={`flash-msg ${flash.kind}`}>{flash.msg}</span>
         )}
         <button
           type="button"
@@ -168,7 +164,7 @@ export function SettingsPanel({ initial }: Props) {
           onClick={handleSave}
           disabled={isPending}
         >
-          {isPending ? "saving…" : "save settings"}
+          {isPending ? "WRITING..." : "WRITE_CFG"}
         </button>
       </div>
     </section>

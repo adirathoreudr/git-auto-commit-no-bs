@@ -1,21 +1,20 @@
-import { loadSettings, loadRepos, loadCommits } from "./actions";
-import { SettingsPanel } from "./components/SettingsPanel";
-import { RepoGrid } from "./components/RepoGrid";
-import { ActivityFeed } from "./components/ActivityFeed";
+import { loadSettings, loadRepos, loadCommits, checkEnvStatus } from "./actions";
+import { SettingsPanel } from "./_components/SettingsPanel";
+import { RepoGrid } from "./_components/RepoGrid";
+import { ActivityFeed } from "./_components/ActivityFeed";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const [settings, repos, commits] = await Promise.all([
+  const [settings, repos, commits, envStatus] = await Promise.all([
     loadSettings(),
     loadRepos(),
     loadCommits(50),
+    checkEnvStatus(),
   ]);
 
   const settingsInitial = settings
     ? {
-        githubToken: settings.githubToken,
-        deepseekKey: settings.deepseekKey,
         cronSchedule: settings.cronSchedule,
         maxCommitsDay: settings.maxCommitsDay,
       }
@@ -71,12 +70,12 @@ export default async function DashboardPage() {
         SYSTEM BOOT OK. DEEPSEEK ENGINE READY. CRON SCHEDULER ARMED.
         <br />
         <span style={{ color: "var(--crt-green)", opacity: 0.7 }}>&gt;</span>{" "}
-        CONFIGURE KEYS. SELECT TARGETS. WATCH THE AGENT WORK.
+        CONFIGURE CRON. SELECT TARGETS. WATCH THE AGENT WORK.
       </div>
 
       <div className="dash-body">
         <div className="dash-left">
-          <SettingsPanel initial={settingsInitial} />
+          <SettingsPanel initial={settingsInitial} envStatus={envStatus} />
           <ActivityFeed initial={commits} />
         </div>
         <div className="dash-right">
@@ -98,8 +97,8 @@ export default async function DashboardPage() {
           alignItems: "center",
         }}
       >
-        <span>REPO_AGENT v0.5.0 // PHASE_5 BUILD</span>
-        <span>DEEPSEEK-V4-FLASH · GITHUB REST API · VERCEL CRON</span>
+        <span>REPO_AGENT v0.5.0</span>
+        <span>DEEPSEEK-R1 · GITHUB REST API · VERCEL CRON</span>
         <span style={{ color: "var(--crt-green)", opacity: 0.4 }}>
           ▓▒░ CTRL_YOUR_CODE ░▒▓
         </span>

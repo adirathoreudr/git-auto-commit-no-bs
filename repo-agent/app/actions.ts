@@ -10,11 +10,9 @@ import {
   getRecentCommits,
 } from "@/lib/db";
 import { listRepos, verifyToken } from "@/lib/github";
-import type { CommitStatus } from "@prisma/client";
+import type { CommitStatus } from "@/generated/prisma";
 
 export type SettingsPayload = {
-  githubToken: string;
-  deepseekKey: string;
   cronSchedule?: string;
   maxCommitsDay?: number;
 };
@@ -30,9 +28,6 @@ export async function loadSettings() {
 export async function saveSettings(
   payload: SettingsPayload
 ): Promise<ActionResult> {
-  if (!payload.githubToken.trim() || !payload.deepseekKey.trim()) {
-    return { ok: false, error: "Both tokens are required." };
-  }
   try {
     await upsertSettings(payload);
     revalidatePath("/");
@@ -43,12 +38,12 @@ export async function saveSettings(
 }
 
 export async function syncRepos(): Promise<ActionResult<number>> {
-  const settings = await getSettings();
-  if (!settings) {
-    return { ok: false, error: "Save your GitHub token first." };
+  const token = process.env.GITHUB_PAT;
+  if (!token) {
+    return { ok: false, error: "GITHUB_PAT not set in environment." };
   }
   try {
-    const repos = await listRepos(settings.githubToken);
+    const repos = await listRepos(token);
     for (const repo of repos) {
       await upsertRepository({
         owner: repo.owner.login,
@@ -98,13 +93,26 @@ export async function loadCommits(limit?: number): Promise<CommitEntry[]> {
   return rows as CommitEntry[];
 }
 
-export async function verifyGithubToken(
-  token: string
-): Promise<ActionResult<string>> {
-  try {
-    const login = await verifyToken(token);
-    return { ok: true, data: login };
-  } catch (e) {
-    return { ok: false, error: String(e) };
+export async function checkEnvStatus(): Promise<{
+  githubPat: boolean;
+  deepseekKey: boolean;
+  githubLogin: string | null;
+}> {
+  const token = process.env.GITHUB_PAT;
+  const dsKey = process.env.DEEPSEEK_API_KEY;
+
+  let githubLogin: string | null = null;
+  if (token) {
+    try {
+      githubLogin = await verifyToken(token);
+    } catch {
+      githubLogin = null;
+    }
   }
+
+  return {
+    githubPat: !!token,
+    deepseekKey: !!dsKey,
+    githubLogin,
+  };
 }

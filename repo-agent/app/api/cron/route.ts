@@ -24,10 +24,18 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const settings = await getSettings();
-  if (!settings) {
-    return NextResponse.json({ error: "No settings configured" }, { status: 400 });
+  const githubToken = process.env.GITHUB_PAT;
+  if (!githubToken) {
+    return NextResponse.json({ error: "GITHUB_PAT not set in environment" }, { status: 500 });
   }
+
+  const deepseekKey = process.env.DEEPSEEK_API_KEY;
+  if (!deepseekKey) {
+    return NextResponse.json({ error: "DEEPSEEK_API_KEY not set in environment" }, { status: 500 });
+  }
+
+  const settings = await getSettings();
+  const maxCommitsDay = settings?.maxCommitsDay ?? 1;
 
   const repos = await getEnabledRepos();
   if (repos.length === 0) {
@@ -39,17 +47,17 @@ export async function GET(request: Request) {
   for (const repo of repos) {
     try {
       const todayCount = await getCommitsToday(repo.id);
-      if (todayCount >= settings.maxCommitsDay) {
+      if (todayCount >= maxCommitsDay) {
         results.push({
           repo: repo.fullName,
           status: "skipped",
-          message: `Daily limit reached (${todayCount}/${settings.maxCommitsDay})`,
+          message: `Daily limit reached (${todayCount}/${maxCommitsDay})`,
         });
         continue;
       }
 
       const { sha, files } = await fetchTree(
-        settings.githubToken,
+        githubToken,
         repo.owner,
         repo.name
       );
@@ -63,21 +71,16 @@ export async function GET(request: Request) {
         continue;
       }
 
-      const randomIndex = Math.floor(Math.random() * files.length);
-      const targetFile = files[randomIndex];
+      const targetFile = files[Math.floor(Math.random() * files.length)];
 
       const content = await fetchFileContent(
-        settings.githubToken,
+        githubToken,
         repo.owner,
         repo.name,
         targetFile.sha
       );
 
-      const aiResult = await analyzeFile(
-        settings.deepseekKey,
-        targetFile.path,
-        content
-      );
+      const aiResult = await analyzeFile(targetFile.path, content);
 
       const validation = validateDiff(aiResult);
       if (!validation.valid) {
@@ -102,7 +105,7 @@ export async function GET(request: Request) {
       const newContent = applyUnifiedDiff(content, aiResult.unified_diff);
 
       const commitResult = await createCommit(
-        settings.githubToken,
+        githubToken,
         repo.owner,
         repo.name,
         "main",
@@ -119,12 +122,8 @@ export async function GET(request: Request) {
         diffSummary: aiResult.unified_diff,
         linesChanged: aiResult.unified_diff
           .split("\n")
-          .filter(
-            (l) =>
-              (l.startsWith("+") || l.startsWith("-")) &&
-              !l.startsWith("+++") &&
-              !l.startsWith("---")
-          ).length,
+          .filter((l) => (l.startsWith("+") || l.startsWith("-")) && !l.startsWith("+++") && !l.startsWith("---"))
+          .length,
         status: "SUCCESS",
       });
 

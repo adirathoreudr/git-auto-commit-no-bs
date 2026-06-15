@@ -19,10 +19,14 @@ export interface AIRefactorResult {
 }
 
 export async function analyzeFile(
-  apiKey: string,
   filePath: string,
   fileContent: string
 ): Promise<AIRefactorResult> {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    throw new Error("DEEPSEEK_API_KEY is not set in environment variables.");
+  }
+
   const userPrompt = `File: ${filePath}\n\n\`\`\`\n${fileContent}\n\`\`\``;
 
   const res = await fetch(NVIDIA_NIM_URL, {
@@ -80,18 +84,10 @@ function parseAIResponse(raw: string): AIRefactorResult {
 
   const obj = parsed as Record<string, unknown>;
 
-  if (typeof obj.file_to_change !== "string") {
-    throw new Error("Missing file_to_change in AI response");
-  }
-  if (typeof obj.unified_diff !== "string") {
-    throw new Error("Missing unified_diff in AI response");
-  }
-  if (typeof obj.commit_message !== "string") {
-    throw new Error("Missing commit_message in AI response");
-  }
-  if (typeof obj.isValid !== "boolean") {
-    throw new Error("Missing isValid in AI response");
-  }
+  if (typeof obj.file_to_change !== "string") throw new Error("Missing file_to_change in AI response");
+  if (typeof obj.unified_diff !== "string") throw new Error("Missing unified_diff in AI response");
+  if (typeof obj.commit_message !== "string") throw new Error("Missing commit_message in AI response");
+  if (typeof obj.isValid !== "boolean") throw new Error("Missing isValid in AI response");
 
   return {
     file_to_change: obj.file_to_change,
@@ -110,26 +106,13 @@ export function countDiffLines(diff: string): number {
 }
 
 export function validateDiff(result: AIRefactorResult): { valid: boolean; reason?: string } {
-  if (!result.isValid) {
-    return { valid: false, reason: "AI flagged change as invalid" };
-  }
-
-  if (!result.unified_diff || result.unified_diff.trim().length === 0) {
-    return { valid: false, reason: "Empty diff" };
-  }
+  if (!result.isValid) return { valid: false, reason: "AI flagged change as invalid" };
+  if (!result.unified_diff || result.unified_diff.trim().length === 0) return { valid: false, reason: "Empty diff" };
 
   const lines = countDiffLines(result.unified_diff);
-  if (lines > 30) {
-    return { valid: false, reason: `Diff too large: ${lines} lines (max 30)` };
-  }
-
-  if (lines === 0) {
-    return { valid: false, reason: "No actual changes in diff" };
-  }
-
-  if (!result.commit_message.startsWith("chore")) {
-    return { valid: false, reason: "Commit message must start with chore" };
-  }
+  if (lines > 30) return { valid: false, reason: `Diff too large: ${lines} lines (max 30)` };
+  if (lines === 0) return { valid: false, reason: "No actual changes in diff" };
+  if (!result.commit_message.startsWith("chore")) return { valid: false, reason: "Commit message must start with chore" };
 
   return { valid: true };
 }

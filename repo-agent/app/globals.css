@@ -1,7 +1,6 @@
-@import "tailwindcss";
-
 @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&family=Press+Start+2P&display=swap');
 
+@import "tailwindcss";
 :root {
   --crt-green: #39ff6e;
   --crt-green-dim: #1a7a35;

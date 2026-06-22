@@ -74,32 +74,6 @@ export function SettingsPanel({ initial, envStatus }: Props) {
       </div>
 
       <div className="settings-body">
-        {/* ── API Key Status ── */}
-        <div className="env-status-card">
-          <div className="env-status-title">
-            <span className="env-lock-icon">🔒</span>
-            <span className="panel-header-label" style={{ color: "var(--crt-green)" }}>
-              API KEY STATUS
-            </span>
-          </div>
-          <div className="env-status-rows">
-            <div className="env-row">
-              <span className="env-row-key">GITHUB_TOKEN</span>
-              <span className={`env-row-val ${envStatus.githubPat ? "ok" : "err"}`}>
-                {envStatus.githubPat
-                  ? `[SET]${envStatus.githubLogin ? ` @${envStatus.githubLogin}` : ""}`
-                  : "[MISSING]"}
-              </span>
-            </div>
-            <div className="env-row">
-              <span className="env-row-key">NVIDIA_API_KEY</span>
-              <span className={`env-row-val ${envStatus.nvidiaApiKey ? "ok" : "err"}`}>
-                {envStatus.nvidiaApiKey ? "[SET]" : "[MISSING]"}
-              </span>
-            </div>
-          </div>
-        </div>
-
         {/* ── API Key Inputs ── */}
         <div className="key-input-card">
           <div className="field-group">
@@ -110,7 +84,7 @@ export function SettingsPanel({ initial, envStatus }: Props) {
                 className="field-input"
                 value={githubToken}
                 onChange={(e) => setGithubToken(e.target.value)}
-                placeholder={envStatus.githubPat ? "••••••• (already set)" : "ghp_xxxxxx..."}
+                placeholder="ghp_xxxxxx..."
                 spellCheck={false}
                 autoComplete="off"
               />
@@ -132,7 +106,7 @@ export function SettingsPanel({ initial, envStatus }: Props) {
                 className="field-input"
                 value={nvidiaApiKey}
                 onChange={(e) => setNvidiaApiKey(e.target.value)}
-                placeholder={envStatus.nvidiaApiKey ? "••••••• (already set)" : "nvapi-xxxxxx..."}
+                placeholder="nvapi-xxxxxx..."
                 spellCheck={false}
                 autoComplete="off"
               />

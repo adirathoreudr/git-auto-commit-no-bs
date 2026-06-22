@@ -114,27 +114,14 @@ export async function loadCommits(limit?: number): Promise<CommitEntry[]> {
   return rows as CommitEntry[];
 }
 
-export async function checkEnvStatus(): Promise<{
-  githubPat: boolean;
-  nvidiaApiKey: boolean;
-  githubLogin: string | null;
-}> {
+export async function checkEnvStatus() {
   const keys = await getApiKeys();
-  const token = keys.githubToken || process.env.GITHUB_PAT;
-  const aiKey = keys.nvidiaApiKey || process.env.DEEPSEEK_API_KEY;
-
-  let githubLogin: string | null = null;
-  if (token) {
-    try {
-      githubLogin = await verifyToken(token);
-    } catch {
-      githubLogin = null;
-    }
-  }
+  const githubPat = keys.githubToken || process.env.GITHUB_PAT;
+  const nvidiaApiKey = keys.nvidiaApiKey || process.env.DEEPSEEK_API_KEY; // keep old env var for backward compat
 
   return {
-    githubPat: !!token,
-    nvidiaApiKey: !!aiKey,
-    githubLogin,
+    githubPat: !!githubPat,
+    nvidiaApiKey: !!nvidiaApiKey,
+    githubLogin: null,
   };
 }

@@ -20,11 +20,12 @@ export interface AIRefactorResult {
 
 export async function analyzeFile(
   filePath: string,
-  fileContent: string
+  fileContent: string,
+  apiKeyOverride?: string
 ): Promise<AIRefactorResult> {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
+  const apiKey = apiKeyOverride || process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
-    throw new Error("DEEPSEEK_API_KEY is not set in environment variables.");
+    throw new Error("No NVIDIA/DeepSeek API key found. Save one in Settings.");
   }
 
   const userPrompt = `File: ${filePath}\n\n\`\`\`\n${fileContent}\n\`\`\``;

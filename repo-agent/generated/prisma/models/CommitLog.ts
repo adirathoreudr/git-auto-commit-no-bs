@@ -513,10 +513,6 @@ export type CommitLogUncheckedUpdateManyWithoutRepositoryNestedInput = {
   deleteMany?: Prisma.CommitLogScalarWhereInput | Prisma.CommitLogScalarWhereInput[]
 }
 
-export type NullableStringFieldUpdateOperationsInput = {
-  set?: string | null
-}
-
 export type EnumCommitStatusFieldUpdateOperationsInput = {
   set?: $Enums.CommitStatus
 }

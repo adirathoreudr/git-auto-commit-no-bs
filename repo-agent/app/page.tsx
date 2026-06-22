@@ -67,7 +67,7 @@ export default async function DashboardPage() {
         }}
       >
         <span style={{ color: "var(--crt-green)", opacity: 0.7 }}>&gt;</span>{" "}
-        SYSTEM BOOT OK. DEEPSEEK ENGINE READY. CRON SCHEDULER ARMED.
+        SYSTEM BOOT OK. NVIDIA NIM ENGINE READY. CRON SCHEDULER ARMED.
         <br />
         <span style={{ color: "var(--crt-green)", opacity: 0.7 }}>&gt;</span>{" "}
         CONFIGURE CRON. SELECT TARGETS. WATCH THE AGENT WORK.

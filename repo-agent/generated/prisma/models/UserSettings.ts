@@ -36,6 +36,8 @@ export type UserSettingsSumAggregateOutputType = {
 
 export type UserSettingsMinAggregateOutputType = {
   id: string | null
+  githubToken: string | null
+  nvidiaApiKey: string | null
   cronSchedule: string | null
   maxCommitsDay: number | null
   createdAt: Date | null
@@ -44,6 +46,8 @@ export type UserSettingsMinAggregateOutputType = {
 
 export type UserSettingsMaxAggregateOutputType = {
   id: string | null
+  githubToken: string | null
+  nvidiaApiKey: string | null
   cronSchedule: string | null
   maxCommitsDay: number | null
   createdAt: Date | null
@@ -52,6 +56,8 @@ export type UserSettingsMaxAggregateOutputType = {
 
 export type UserSettingsCountAggregateOutputType = {
   id: number
+  githubToken: number
+  nvidiaApiKey: number
   cronSchedule: number
   maxCommitsDay: number
   createdAt: number
@@ -70,6 +76,8 @@ export type UserSettingsSumAggregateInputType = {
 
 export type UserSettingsMinAggregateInputType = {
   id?: true
+  githubToken?: true
+  nvidiaApiKey?: true
   cronSchedule?: true
   maxCommitsDay?: true
   createdAt?: true
@@ -78,6 +86,8 @@ export type UserSettingsMinAggregateInputType = {
 
 export type UserSettingsMaxAggregateInputType = {
   id?: true
+  githubToken?: true
+  nvidiaApiKey?: true
   cronSchedule?: true
   maxCommitsDay?: true
   createdAt?: true
@@ -86,6 +96,8 @@ export type UserSettingsMaxAggregateInputType = {
 
 export type UserSettingsCountAggregateInputType = {
   id?: true
+  githubToken?: true
+  nvidiaApiKey?: true
   cronSchedule?: true
   maxCommitsDay?: true
   createdAt?: true
@@ -181,6 +193,8 @@ export type UserSettingsGroupByArgs<ExtArgs extends runtime.Types.Extensions.Int
 
 export type UserSettingsGroupByOutputType = {
   id: string
+  githubToken: string
+  nvidiaApiKey: string
   cronSchedule: string
   maxCommitsDay: number
   createdAt: Date
@@ -212,6 +226,8 @@ export type UserSettingsWhereInput = {
   OR?: Prisma.UserSettingsWhereInput[]
   NOT?: Prisma.UserSettingsWhereInput | Prisma.UserSettingsWhereInput[]
   id?: Prisma.StringFilter<"UserSettings"> | string
+  githubToken?: Prisma.StringFilter<"UserSettings"> | string
+  nvidiaApiKey?: Prisma.StringFilter<"UserSettings"> | string
   cronSchedule?: Prisma.StringFilter<"UserSettings"> | string
   maxCommitsDay?: Prisma.IntFilter<"UserSettings"> | number
   createdAt?: Prisma.DateTimeFilter<"UserSettings"> | Date | string
@@ -220,6 +236,8 @@ export type UserSettingsWhereInput = {
 
 export type UserSettingsOrderByWithRelationInput = {
   id?: Prisma.SortOrder
+  githubToken?: Prisma.SortOrder
+  nvidiaApiKey?: Prisma.SortOrder
   cronSchedule?: Prisma.SortOrder
   maxCommitsDay?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -231,6 +249,8 @@ export type UserSettingsWhereUniqueInput = Prisma.AtLeast<{
   AND?: Prisma.UserSettingsWhereInput | Prisma.UserSettingsWhereInput[]
   OR?: Prisma.UserSettingsWhereInput[]
   NOT?: Prisma.UserSettingsWhereInput | Prisma.UserSettingsWhereInput[]
+  githubToken?: Prisma.StringFilter<"UserSettings"> | string
+  nvidiaApiKey?: Prisma.StringFilter<"UserSettings"> | string
   cronSchedule?: Prisma.StringFilter<"UserSettings"> | string
   maxCommitsDay?: Prisma.IntFilter<"UserSettings"> | number
   createdAt?: Prisma.DateTimeFilter<"UserSettings"> | Date | string
@@ -239,6 +259,8 @@ export type UserSettingsWhereUniqueInput = Prisma.AtLeast<{
 
 export type UserSettingsOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
+  githubToken?: Prisma.SortOrder
+  nvidiaApiKey?: Prisma.SortOrder
   cronSchedule?: Prisma.SortOrder
   maxCommitsDay?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -255,6 +277,8 @@ export type UserSettingsScalarWhereWithAggregatesInput = {
   OR?: Prisma.UserSettingsScalarWhereWithAggregatesInput[]
   NOT?: Prisma.UserSettingsScalarWhereWithAggregatesInput | Prisma.UserSettingsScalarWhereWithAggregatesInput[]
   id?: Prisma.StringWithAggregatesFilter<"UserSettings"> | string
+  githubToken?: Prisma.StringWithAggregatesFilter<"UserSettings"> | string
+  nvidiaApiKey?: Prisma.StringWithAggregatesFilter<"UserSettings"> | string
   cronSchedule?: Prisma.StringWithAggregatesFilter<"UserSettings"> | string
   maxCommitsDay?: Prisma.IntWithAggregatesFilter<"UserSettings"> | number
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"UserSettings"> | Date | string
@@ -263,6 +287,8 @@ export type UserSettingsScalarWhereWithAggregatesInput = {
 
 export type UserSettingsCreateInput = {
   id?: string
+  githubToken?: string
+  nvidiaApiKey?: string
   cronSchedule?: string
   maxCommitsDay?: number
   createdAt?: Date | string
@@ -271,6 +297,8 @@ export type UserSettingsCreateInput = {
 
 export type UserSettingsUncheckedCreateInput = {
   id?: string
+  githubToken?: string
+  nvidiaApiKey?: string
   cronSchedule?: string
   maxCommitsDay?: number
   createdAt?: Date | string
@@ -279,6 +307,8 @@ export type UserSettingsUncheckedCreateInput = {
 
 export type UserSettingsUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  githubToken?: Prisma.StringFieldUpdateOperationsInput | string
+  nvidiaApiKey?: Prisma.StringFieldUpdateOperationsInput | string
   cronSchedule?: Prisma.StringFieldUpdateOperationsInput | string
   maxCommitsDay?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -287,6 +317,8 @@ export type UserSettingsUpdateInput = {
 
 export type UserSettingsUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  githubToken?: Prisma.StringFieldUpdateOperationsInput | string
+  nvidiaApiKey?: Prisma.StringFieldUpdateOperationsInput | string
   cronSchedule?: Prisma.StringFieldUpdateOperationsInput | string
   maxCommitsDay?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -295,6 +327,8 @@ export type UserSettingsUncheckedUpdateInput = {
 
 export type UserSettingsCreateManyInput = {
   id?: string
+  githubToken?: string
+  nvidiaApiKey?: string
   cronSchedule?: string
   maxCommitsDay?: number
   createdAt?: Date | string
@@ -303,6 +337,8 @@ export type UserSettingsCreateManyInput = {
 
 export type UserSettingsUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  githubToken?: Prisma.StringFieldUpdateOperationsInput | string
+  nvidiaApiKey?: Prisma.StringFieldUpdateOperationsInput | string
   cronSchedule?: Prisma.StringFieldUpdateOperationsInput | string
   maxCommitsDay?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -311,6 +347,8 @@ export type UserSettingsUpdateManyMutationInput = {
 
 export type UserSettingsUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  githubToken?: Prisma.StringFieldUpdateOperationsInput | string
+  nvidiaApiKey?: Prisma.StringFieldUpdateOperationsInput | string
   cronSchedule?: Prisma.StringFieldUpdateOperationsInput | string
   maxCommitsDay?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -319,6 +357,8 @@ export type UserSettingsUncheckedUpdateManyInput = {
 
 export type UserSettingsCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
+  githubToken?: Prisma.SortOrder
+  nvidiaApiKey?: Prisma.SortOrder
   cronSchedule?: Prisma.SortOrder
   maxCommitsDay?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -331,6 +371,8 @@ export type UserSettingsAvgOrderByAggregateInput = {
 
 export type UserSettingsMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
+  githubToken?: Prisma.SortOrder
+  nvidiaApiKey?: Prisma.SortOrder
   cronSchedule?: Prisma.SortOrder
   maxCommitsDay?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -339,6 +381,8 @@ export type UserSettingsMaxOrderByAggregateInput = {
 
 export type UserSettingsMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
+  githubToken?: Prisma.SortOrder
+  nvidiaApiKey?: Prisma.SortOrder
   cronSchedule?: Prisma.SortOrder
   maxCommitsDay?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -369,6 +413,8 @@ export type DateTimeFieldUpdateOperationsInput = {
 
 export type UserSettingsSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
+  githubToken?: boolean
+  nvidiaApiKey?: boolean
   cronSchedule?: boolean
   maxCommitsDay?: boolean
   createdAt?: boolean
@@ -377,6 +423,8 @@ export type UserSettingsSelect<ExtArgs extends runtime.Types.Extensions.Internal
 
 export type UserSettingsSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
+  githubToken?: boolean
+  nvidiaApiKey?: boolean
   cronSchedule?: boolean
   maxCommitsDay?: boolean
   createdAt?: boolean
@@ -385,6 +433,8 @@ export type UserSettingsSelectCreateManyAndReturn<ExtArgs extends runtime.Types.
 
 export type UserSettingsSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
+  githubToken?: boolean
+  nvidiaApiKey?: boolean
   cronSchedule?: boolean
   maxCommitsDay?: boolean
   createdAt?: boolean
@@ -393,19 +443,23 @@ export type UserSettingsSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.
 
 export type UserSettingsSelectScalar = {
   id?: boolean
+  githubToken?: boolean
+  nvidiaApiKey?: boolean
   cronSchedule?: boolean
   maxCommitsDay?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type UserSettingsOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "cronSchedule" | "maxCommitsDay" | "createdAt" | "updatedAt", ExtArgs["result"]["userSettings"]>
+export type UserSettingsOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "githubToken" | "nvidiaApiKey" | "cronSchedule" | "maxCommitsDay" | "createdAt" | "updatedAt", ExtArgs["result"]["userSettings"]>
 
 export type $UserSettingsPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "UserSettings"
   objects: {}
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
+    githubToken: string
+    nvidiaApiKey: string
     cronSchedule: string
     maxCommitsDay: number
     createdAt: Date
@@ -834,6 +888,8 @@ export interface Prisma__UserSettingsClient<T, Null = never, ExtArgs extends run
  */
 export interface UserSettingsFieldRefs {
   readonly id: Prisma.FieldRef<"UserSettings", 'String'>
+  readonly githubToken: Prisma.FieldRef<"UserSettings", 'String'>
+  readonly nvidiaApiKey: Prisma.FieldRef<"UserSettings", 'String'>
   readonly cronSchedule: Prisma.FieldRef<"UserSettings", 'String'>
   readonly maxCommitsDay: Prisma.FieldRef<"UserSettings", 'Int'>
   readonly createdAt: Prisma.FieldRef<"UserSettings", 'DateTime'>

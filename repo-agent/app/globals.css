@@ -1026,3 +1026,43 @@ input, button, select, textarea {
   background: var(--red-dim);
   border: 1px solid rgba(255, 51, 51, 0.3);
 }
+
+/* ─── API Key Input Card ─── */
+
+.key-input-card {
+  background: var(--navy-deep);
+  border: 1px solid var(--border);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.key-input-card .field-input {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.key-input-card .field-input::placeholder {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.key-save-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.key-save-btn {
+  background: var(--navy-elevated) !important;
+  border-color: var(--pixel-blue-light) !important;
+  color: var(--pixel-blue-light) !important;
+}
+
+.key-save-btn:hover:not(:disabled) {
+  background: var(--pixel-blue-dim) !important;
+  box-shadow: 0 0 12px rgba(26, 111, 212, 0.2) !important;
+}

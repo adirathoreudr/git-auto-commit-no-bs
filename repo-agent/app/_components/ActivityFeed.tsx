@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useEffect } from "react";
 import { loadCommits, type CommitEntry } from "../actions";
-import type { CommitStatus } from "@prisma/client";
+import type { CommitStatus } from "@/generated/prisma/client";
 
 type Props = { initial: CommitEntry[] };
 

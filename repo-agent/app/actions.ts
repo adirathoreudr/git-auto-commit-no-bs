@@ -4,17 +4,24 @@ import { revalidatePath } from "next/cache";
 import {
   getSettings,
   upsertSettings,
+  upsertApiKeys,
+  getApiKeys,
   getAllRepos,
   toggleRepository,
   upsertRepository,
   getRecentCommits,
 } from "@/lib/db";
 import { listRepos, verifyToken } from "@/lib/github";
-import type { CommitStatus } from "@/generated/prisma";
+import type { CommitStatus } from "@/generated/prisma/client";
 
 export type SettingsPayload = {
   cronSchedule?: string;
   maxCommitsDay?: number;
+};
+
+export type ApiKeysPayload = {
+  githubToken?: string;
+  nvidiaApiKey?: string;
 };
 
 export type ActionResult<T = void> =
@@ -37,10 +44,24 @@ export async function saveSettings(
   }
 }
 
+export async function saveApiKeys(
+  payload: ApiKeysPayload
+): Promise<ActionResult> {
+  try {
+    await upsertApiKeys(payload);
+    revalidatePath("/");
+    return { ok: true, data: undefined };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 export async function syncRepos(): Promise<ActionResult<number>> {
-  const token = process.env.GITHUB_PAT;
+  /* Try DB-stored key first, fall back to env */
+  const keys = await getApiKeys();
+  const token = keys.githubToken || process.env.GITHUB_PAT;
   if (!token) {
-    return { ok: false, error: "GITHUB_PAT not set in environment." };
+    return { ok: false, error: "No GitHub token found. Save one in Settings." };
   }
   try {
     const repos = await listRepos(token);
@@ -95,11 +116,12 @@ export async function loadCommits(limit?: number): Promise<CommitEntry[]> {
 
 export async function checkEnvStatus(): Promise<{
   githubPat: boolean;
-  deepseekKey: boolean;
+  nvidiaApiKey: boolean;
   githubLogin: string | null;
 }> {
-  const token = process.env.GITHUB_PAT;
-  const dsKey = process.env.DEEPSEEK_API_KEY;
+  const keys = await getApiKeys();
+  const token = keys.githubToken || process.env.GITHUB_PAT;
+  const aiKey = keys.nvidiaApiKey || process.env.DEEPSEEK_API_KEY;
 
   let githubLogin: string | null = null;
   if (token) {
@@ -112,7 +134,7 @@ export async function checkEnvStatus(): Promise<{
 
   return {
     githubPat: !!token,
-    deepseekKey: !!dsKey,
+    nvidiaApiKey: !!aiKey,
     githubLogin,
   };
 }

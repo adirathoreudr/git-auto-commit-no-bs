@@ -1,5 +1,5 @@
 import { prisma } from "./prisma";
-import type { CommitStatus } from "@prisma/client";
+import type { CommitStatus } from "@/generated/prisma/client";
 
 export async function getSettings() {
   return prisma.userSettings.findFirst({
@@ -7,9 +7,8 @@ export async function getSettings() {
   });
 }
 
+/* Save config-only fields (cron + max commits) */
 export async function upsertSettings(data: {
-  githubToken: string;
-  deepseekKey: string;
   cronSchedule?: string;
   maxCommitsDay?: number;
 }) {
@@ -21,6 +20,33 @@ export async function upsertSettings(data: {
     });
   }
   return prisma.userSettings.create({ data });
+}
+
+/* Save API keys (plain text in private DB) */
+export async function upsertApiKeys(data: {
+  githubToken?: string;
+  nvidiaApiKey?: string;
+}) {
+  const existing = await getSettings();
+  if (existing) {
+    return prisma.userSettings.update({
+      where: { id: existing.id },
+      data,
+    });
+  }
+  return prisma.userSettings.create({ data });
+}
+
+/* Read stored API keys */
+export async function getApiKeys(): Promise<{
+  githubToken: string;
+  nvidiaApiKey: string;
+}> {
+  const settings = await getSettings();
+  return {
+    githubToken: settings?.githubToken ?? "",
+    nvidiaApiKey: settings?.nvidiaApiKey ?? "",
+  };
 }
 
 export async function getEnabledRepos() {

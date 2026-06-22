@@ -5,6 +5,7 @@ import {
   getCommitsToday,
   createCommitLog,
   updateLastScanned,
+  getApiKeys,
 } from "@/lib/db";
 import { fetchTree, fetchFileContent, createCommit, applyUnifiedDiff } from "@/lib/github";
 import { analyzeFile, validateDiff } from "@/lib/ai";
@@ -24,14 +25,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const githubToken = process.env.GITHUB_PAT;
+  const keys = await getApiKeys();
+  const githubToken = keys.githubToken || process.env.GITHUB_PAT;
   if (!githubToken) {
-    return NextResponse.json({ error: "GITHUB_PAT not set in environment" }, { status: 500 });
+    return NextResponse.json({ error: "No GitHub token found. Set one in Settings." }, { status: 500 });
   }
 
-  const deepseekKey = process.env.DEEPSEEK_API_KEY;
-  if (!deepseekKey) {
-    return NextResponse.json({ error: "DEEPSEEK_API_KEY not set in environment" }, { status: 500 });
+  const nvidiaApiKey = keys.nvidiaApiKey || process.env.DEEPSEEK_API_KEY;
+  if (!nvidiaApiKey) {
+    return NextResponse.json({ error: "No NVIDIA API key found. Set one in Settings." }, { status: 500 });
   }
 
   const settings = await getSettings();
@@ -80,7 +82,7 @@ export async function GET(request: Request) {
         targetFile.sha
       );
 
-      const aiResult = await analyzeFile(targetFile.path, content);
+      const aiResult = await analyzeFile(targetFile.path, content, nvidiaApiKey);
 
       const validation = validateDiff(aiResult);
       if (!validation.valid) {

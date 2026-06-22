@@ -669,6 +669,8 @@ export type TransactionIsolationLevel = (typeof TransactionIsolationLevel)[keyof
 
 export const UserSettingsScalarFieldEnum = {
   id: 'id',
+  githubToken: 'githubToken',
+  nvidiaApiKey: 'nvidiaApiKey',
   cronSchedule: 'cronSchedule',
   maxCommitsDay: 'maxCommitsDay',
   createdAt: 'createdAt',
@@ -685,6 +687,7 @@ export const RepositoryScalarFieldEnum = {
   fullName: 'fullName',
   enabled: 'enabled',
   lastScannedAt: 'lastScannedAt',
+  lastScannedSha: 'lastScannedSha',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const

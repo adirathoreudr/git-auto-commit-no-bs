@@ -9,6 +9,8 @@ datasource db {
 
 model UserSettings {
   id            String   @id @default(cuid())
+  githubToken   String   @default("")
+  nvidiaApiKey  String   @default("")
   cronSchedule  String   @default("0 */12 * * *")
   maxCommitsDay Int      @default(1)
   createdAt     DateTime @default(now())
@@ -22,6 +24,7 @@ model Repository {
   fullName      String      @unique
   enabled       Boolean     @default(false)
   lastScannedAt DateTime?
+  lastScannedSha String?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   commits       CommitLog[]

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Share_Tech_Mono, VT323, Press_Start_2P } from "next/font/google";
 import "./globals.css";
+import { MatrixRain } from "./_components/MatrixRain";
 
 const shareTechMono = Share_Tech_Mono({
   variable: "--font-mono",
@@ -33,7 +34,10 @@ export default function RootLayout({
       lang="en"
       className={`${shareTechMono.variable} ${vt323.variable} ${pressStart2P.variable}`}
     >
-      <body>{children}</body>
+      <body>
+        <MatrixRain />
+        {children}
+      </body>
     </html>
   );
 }

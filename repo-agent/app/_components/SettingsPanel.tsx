@@ -15,7 +15,7 @@ type Props = {
   };
 };
 
-export function SettingsPanel({ initial, envStatus }: Props) {
+export function SettingsPanel({ initial }: Props) {
   const [cronSchedule, setCronSchedule] = useState(
     initial?.cronSchedule ?? "0 */12 * * *"
   );

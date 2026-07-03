@@ -10,8 +10,8 @@ import {
   upsertRepository,
   getRecentCommits,
 } from "@/lib/db";
-import { getCurrentUser, loginWithPat, logout } from "@/lib/auth";
-import { listRepos } from "@/lib/github";
+import { getCurrentUser, createSession, logout } from "@/lib/auth";
+import { listRepos, verifyToken } from "@/lib/github";
 import type { CommitStatus } from "@/generated/prisma/client";
 
 export type SettingsPayload = {
@@ -35,14 +35,36 @@ const NOT_AUTHED = "Not authenticated. Unlock your workspace first." as const;
 export async function login(token: string): Promise<ActionResult<string>> {
   const trimmed = token.trim();
   if (!trimmed) return { ok: false, error: "Paste your GitHub token first." };
+
+  // Phase 1: verify the token with GitHub.
+  let githubLogin: string;
   try {
-    const login = await loginWithPat(trimmed);
-    revalidatePath("/");
-    return { ok: true, data: login };
-  } catch {
-    // Never echo the token or raw GitHub error back to the client.
-    return { ok: false, error: "Invalid GitHub token, or GitHub is unreachable." };
+    githubLogin = await verifyToken(trimmed);
+  } catch (e) {
+    // Log the real cause server-side (Vercel runtime logs); never echo the
+    // token or raw GitHub error back to the client.
+    console.error("[login] GitHub token verification failed:", e);
+    return {
+      ok: false,
+      error:
+        "GitHub rejected this token. Make sure it's valid, not expired, and has 'repo' scope.",
+    };
   }
+
+  // Phase 2: persist the workspace and set the session cookie.
+  try {
+    await createSession(githubLogin, trimmed);
+  } catch (e) {
+    console.error("[login] session/database write failed:", e);
+    return {
+      ok: false,
+      error:
+        "Signed in to GitHub, but couldn't save your session (database error). Check the deployment logs.",
+    };
+  }
+
+  revalidatePath("/");
+  return { ok: true, data: githubLogin };
 }
 
 export async function signOut(): Promise<ActionResult> {

@@ -5,6 +5,7 @@ interface GitHubRepo {
   full_name: string;
   owner: { login: string };
   default_branch: string;
+  private: boolean;
   fork: boolean;
   archived: boolean;
   disabled: boolean;
@@ -110,6 +111,12 @@ export async function verifyToken(token: string): Promise<string> {
   return user.login;
 }
 
+/**
+ * List the user's own PUBLIC repositories.
+ *
+ * Only public, non-fork, active repos are returned so the agent commits to
+ * repos the user actually maintains — private repos and forks are excluded.
+ */
 export async function listRepos(token: string): Promise<GitHubRepo[]> {
   const repos: GitHubRepo[] = [];
   let page = 1;
@@ -117,13 +124,13 @@ export async function listRepos(token: string): Promise<GitHubRepo[]> {
   while (true) {
     const batch = await ghFetch<GitHubRepo[]>(
       token,
-      `/user/repos?per_page=100&page=${page}&sort=updated&affiliation=owner`
+      `/user/repos?per_page=100&page=${page}&sort=updated&affiliation=owner&visibility=public`
     );
 
     if (batch.length === 0) break;
 
     for (const repo of batch) {
-      if (!repo.fork && !repo.archived && !repo.disabled) {
+      if (!repo.private && !repo.fork && !repo.archived && !repo.disabled) {
         repos.push(repo);
       }
     }

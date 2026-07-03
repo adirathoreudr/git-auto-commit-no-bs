@@ -51,7 +51,7 @@ export const AnyNull = runtime.AnyNull
 
 
 export const ModelName = {
-  UserSettings: 'UserSettings',
+  User: 'User',
   Repository: 'Repository',
   CommitLog: 'CommitLog'
 } as const
@@ -72,8 +72,10 @@ export const TransactionIsolationLevel = runtime.makeStrictEnum({
 export type TransactionIsolationLevel = (typeof TransactionIsolationLevel)[keyof typeof TransactionIsolationLevel]
 
 
-export const UserSettingsScalarFieldEnum = {
+export const UserScalarFieldEnum = {
   id: 'id',
+  githubLogin: 'githubLogin',
+  sessionToken: 'sessionToken',
   githubToken: 'githubToken',
   nvidiaApiKey: 'nvidiaApiKey',
   cronSchedule: 'cronSchedule',
@@ -82,14 +84,16 @@ export const UserSettingsScalarFieldEnum = {
   updatedAt: 'updatedAt'
 } as const
 
-export type UserSettingsScalarFieldEnum = (typeof UserSettingsScalarFieldEnum)[keyof typeof UserSettingsScalarFieldEnum]
+export type UserScalarFieldEnum = (typeof UserScalarFieldEnum)[keyof typeof UserScalarFieldEnum]
 
 
 export const RepositoryScalarFieldEnum = {
   id: 'id',
+  userId: 'userId',
   owner: 'owner',
   name: 'name',
   fullName: 'fullName',
+  defaultBranch: 'defaultBranch',
   enabled: 'enabled',
   lastScannedAt: 'lastScannedAt',
   lastScannedSha: 'lastScannedSha',

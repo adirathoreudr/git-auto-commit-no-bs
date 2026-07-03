@@ -2,16 +2,16 @@
 
 import { revalidatePath } from "next/cache";
 import {
-  getSettings,
+  getUserSettings,
   upsertSettings,
   upsertApiKeys,
-  getApiKeys,
   getAllRepos,
   toggleRepository,
   upsertRepository,
   getRecentCommits,
 } from "@/lib/db";
-import { listRepos, verifyToken } from "@/lib/github";
+import { getCurrentUser, loginWithPat, logout } from "@/lib/auth";
+import { listRepos } from "@/lib/github";
 import type { CommitStatus } from "@/generated/prisma/client";
 
 export type SettingsPayload = {
@@ -28,15 +28,44 @@ export type ActionResult<T = void> =
   | { ok: true; data: T }
   | { ok: false; error: string };
 
+const NOT_AUTHED = "Not authenticated. Unlock your workspace first." as const;
+
+/* ── Auth ── */
+
+export async function login(token: string): Promise<ActionResult<string>> {
+  const trimmed = token.trim();
+  if (!trimmed) return { ok: false, error: "Paste your GitHub token first." };
+  try {
+    const login = await loginWithPat(trimmed);
+    revalidatePath("/");
+    return { ok: true, data: login };
+  } catch {
+    // Never echo the token or raw GitHub error back to the client.
+    return { ok: false, error: "Invalid GitHub token, or GitHub is unreachable." };
+  }
+}
+
+export async function signOut(): Promise<ActionResult> {
+  await logout();
+  revalidatePath("/");
+  return { ok: true, data: undefined };
+}
+
+/* ── Settings ── */
+
 export async function loadSettings() {
-  return getSettings();
+  const user = await getCurrentUser();
+  if (!user) return null;
+  return getUserSettings(user.id);
 }
 
 export async function saveSettings(
   payload: SettingsPayload
 ): Promise<ActionResult> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, error: NOT_AUTHED };
   try {
-    await upsertSettings(payload);
+    await upsertSettings(user.id, payload);
     revalidatePath("/");
     return { ok: true, data: undefined };
   } catch (e) {
@@ -47,8 +76,10 @@ export async function saveSettings(
 export async function saveApiKeys(
   payload: ApiKeysPayload
 ): Promise<ActionResult> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, error: NOT_AUTHED };
   try {
-    await upsertApiKeys(payload);
+    await upsertApiKeys(user.id, payload);
     revalidatePath("/");
     return { ok: true, data: undefined };
   } catch (e) {
@@ -56,20 +87,24 @@ export async function saveApiKeys(
   }
 }
 
+/* ── Repositories ── */
+
 export async function syncRepos(): Promise<ActionResult<number>> {
-  /* Try DB-stored key first, fall back to env */
-  const keys = await getApiKeys();
-  const token = keys.githubToken || process.env.GITHUB_PAT;
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, error: NOT_AUTHED };
+
+  const token = user.githubToken;
   if (!token) {
     return { ok: false, error: "No GitHub token found. Save one in Settings." };
   }
   try {
     const repos = await listRepos(token);
     for (const repo of repos) {
-      await upsertRepository({
+      await upsertRepository(user.id, {
         owner: repo.owner.login,
         name: repo.name,
         fullName: repo.full_name,
+        defaultBranch: repo.default_branch,
       });
     }
     revalidatePath("/");
@@ -80,21 +115,27 @@ export async function syncRepos(): Promise<ActionResult<number>> {
 }
 
 export async function loadRepos() {
-  return getAllRepos();
+  const user = await getCurrentUser();
+  if (!user) return [];
+  return getAllRepos(user.id);
 }
 
 export async function setRepoEnabled(
   fullName: string,
   enabled: boolean
 ): Promise<ActionResult> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, error: NOT_AUTHED };
   try {
-    await toggleRepository(fullName, enabled);
+    await toggleRepository(user.id, fullName, enabled);
     revalidatePath("/");
     return { ok: true, data: undefined };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
 }
+
+/* ── Commit log ── */
 
 export type CommitEntry = {
   id: string;
@@ -110,18 +151,17 @@ export type CommitEntry = {
 };
 
 export async function loadCommits(limit?: number): Promise<CommitEntry[]> {
-  const rows = await getRecentCommits(limit ?? 50);
+  const user = await getCurrentUser();
+  if (!user) return [];
+  const rows = await getRecentCommits(user.id, limit ?? 50);
   return rows as CommitEntry[];
 }
 
 export async function checkEnvStatus() {
-  const keys = await getApiKeys();
-  const githubPat = keys.githubToken || process.env.GITHUB_PAT;
-  const nvidiaApiKey = keys.nvidiaApiKey || process.env.DEEPSEEK_API_KEY; // keep old env var for backward compat
-
+  const user = await getCurrentUser();
   return {
-    githubPat: !!githubPat,
-    nvidiaApiKey: !!nvidiaApiKey,
-    githubLogin: null,
+    githubPat: !!user?.githubToken,
+    nvidiaApiKey: !!user?.nvidiaApiKey,
+    githubLogin: user?.githubLogin ?? null,
   };
 }

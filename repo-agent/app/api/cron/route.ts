@@ -1,22 +1,112 @@
 import { NextResponse } from "next/server";
 import {
-  getSettings,
+  getUsersReadyForCron,
   getEnabledRepos,
   getCommitsToday,
   createCommitLog,
   updateLastScanned,
-  getApiKeys,
 } from "@/lib/db";
 import { fetchTree, fetchFileContent, createCommit, applyUnifiedDiff } from "@/lib/github";
 import { analyzeFile, validateDiff } from "@/lib/ai";
+import type { Repository } from "@/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 interface CronResult {
+  user: string;
   repo: string;
   status: string;
   message: string;
+}
+
+async function processRepo(
+  repo: Repository,
+  githubToken: string,
+  nvidiaApiKey: string,
+  maxCommitsDay: number
+): Promise<{ status: string; message: string }> {
+  const todayCount = await getCommitsToday(repo.id);
+  if (todayCount >= maxCommitsDay) {
+    return {
+      status: "skipped",
+      message: `Daily limit reached (${todayCount}/${maxCommitsDay})`,
+    };
+  }
+
+  const branch = repo.defaultBranch || "main";
+
+  const { sha, files } = await fetchTree(
+    githubToken,
+    repo.owner,
+    repo.name,
+    branch
+  );
+
+  if (files.length === 0) {
+    return { status: "skipped", message: "No eligible files found" };
+  }
+
+  const targetFile = files[Math.floor(Math.random() * files.length)];
+
+  const content = await fetchFileContent(
+    githubToken,
+    repo.owner,
+    repo.name,
+    targetFile.sha
+  );
+
+  const aiResult = await analyzeFile(targetFile.path, content, nvidiaApiKey);
+
+  const validation = validateDiff(aiResult);
+  if (!validation.valid) {
+    await createCommitLog({
+      repositoryId: repo.id,
+      filePath: targetFile.path,
+      commitMessage: aiResult.commit_message || "N/A",
+      diffSummary: aiResult.unified_diff || "",
+      linesChanged: 0,
+      status: "SKIPPED",
+      errorMessage: validation.reason,
+    });
+    return { status: "skipped", message: validation.reason || "Invalid diff" };
+  }
+
+  const newContent = applyUnifiedDiff(content, aiResult.unified_diff);
+
+  const commitResult = await createCommit(
+    githubToken,
+    repo.owner,
+    repo.name,
+    branch,
+    targetFile.path,
+    newContent,
+    aiResult.commit_message
+  );
+
+  await createCommitLog({
+    repositoryId: repo.id,
+    filePath: targetFile.path,
+    commitSha: commitResult.sha,
+    commitMessage: aiResult.commit_message,
+    diffSummary: aiResult.unified_diff,
+    linesChanged: aiResult.unified_diff
+      .split("\n")
+      .filter(
+        (l) =>
+          (l.startsWith("+") || l.startsWith("-")) &&
+          !l.startsWith("+++") &&
+          !l.startsWith("---")
+      ).length,
+    status: "SUCCESS",
+  });
+
+  await updateLastScanned(repo.id, sha);
+
+  return {
+    status: "success",
+    message: `Committed ${commitResult.sha.slice(0, 7)}: ${aiResult.commit_message}`,
+  };
 }
 
 export async function GET(request: Request) {
@@ -25,135 +115,49 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const keys = await getApiKeys();
-  const githubToken = keys.githubToken || process.env.GITHUB_PAT;
-  if (!githubToken) {
-    return NextResponse.json({ error: "No GitHub token found. Set one in Settings." }, { status: 500 });
-  }
-
-  const nvidiaApiKey = keys.nvidiaApiKey || process.env.DEEPSEEK_API_KEY;
-  if (!nvidiaApiKey) {
-    return NextResponse.json({ error: "No NVIDIA API key found. Set one in Settings." }, { status: 500 });
-  }
-
-  const settings = await getSettings();
-  const maxCommitsDay = settings?.maxCommitsDay ?? 1;
-
-  const repos = await getEnabledRepos();
-  if (repos.length === 0) {
-    return NextResponse.json({ message: "No enabled repos" });
+  // Every user with both keys set and at least one enabled repo runs
+  // independently against their own token, key and daily limit.
+  const users = await getUsersReadyForCron();
+  if (users.length === 0) {
+    return NextResponse.json({ message: "No users ready for cron" });
   }
 
   const results: CronResult[] = [];
 
-  for (const repo of repos) {
-    try {
-      const todayCount = await getCommitsToday(repo.id);
-      if (todayCount >= maxCommitsDay) {
+  for (const user of users) {
+    const repos = await getEnabledRepos(user.id);
+
+    for (const repo of repos) {
+      try {
+        const outcome = await processRepo(
+          repo,
+          user.githubToken,
+          user.nvidiaApiKey,
+          user.maxCommitsDay
+        );
         results.push({
+          user: user.githubLogin,
           repo: repo.fullName,
-          status: "skipped",
-          message: `Daily limit reached (${todayCount}/${maxCommitsDay})`,
+          ...outcome,
         });
-        continue;
-      }
-
-      const { sha, files } = await fetchTree(
-        githubToken,
-        repo.owner,
-        repo.name
-      );
-
-      if (files.length === 0) {
-        results.push({
-          repo: repo.fullName,
-          status: "skipped",
-          message: "No eligible files found",
-        });
-        continue;
-      }
-
-      const targetFile = files[Math.floor(Math.random() * files.length)];
-
-      const content = await fetchFileContent(
-        githubToken,
-        repo.owner,
-        repo.name,
-        targetFile.sha
-      );
-
-      const aiResult = await analyzeFile(targetFile.path, content, nvidiaApiKey);
-
-      const validation = validateDiff(aiResult);
-      if (!validation.valid) {
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
         await createCommitLog({
           repositoryId: repo.id,
-          filePath: targetFile.path,
-          commitMessage: aiResult.commit_message || "N/A",
-          diffSummary: aiResult.unified_diff || "",
+          filePath: "unknown",
+          commitMessage: "N/A",
+          diffSummary: "",
           linesChanged: 0,
-          status: "SKIPPED",
-          errorMessage: validation.reason,
-        });
-
+          status: "FAILED",
+          errorMessage: errMsg,
+        }).catch(() => {});
         results.push({
+          user: user.githubLogin,
           repo: repo.fullName,
-          status: "skipped",
-          message: validation.reason || "Invalid diff",
+          status: "failed",
+          message: errMsg,
         });
-        continue;
       }
-
-      const newContent = applyUnifiedDiff(content, aiResult.unified_diff);
-
-      const commitResult = await createCommit(
-        githubToken,
-        repo.owner,
-        repo.name,
-        "main",
-        targetFile.path,
-        newContent,
-        aiResult.commit_message
-      );
-
-      await createCommitLog({
-        repositoryId: repo.id,
-        filePath: targetFile.path,
-        commitSha: commitResult.sha,
-        commitMessage: aiResult.commit_message,
-        diffSummary: aiResult.unified_diff,
-        linesChanged: aiResult.unified_diff
-          .split("\n")
-          .filter((l) => (l.startsWith("+") || l.startsWith("-")) && !l.startsWith("+++") && !l.startsWith("---"))
-          .length,
-        status: "SUCCESS",
-      });
-
-      await updateLastScanned(repo.id, sha);
-
-      results.push({
-        repo: repo.fullName,
-        status: "success",
-        message: `Committed ${commitResult.sha.slice(0, 7)}: ${aiResult.commit_message}`,
-      });
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-
-      await createCommitLog({
-        repositoryId: repo.id,
-        filePath: "unknown",
-        commitMessage: "N/A",
-        diffSummary: "",
-        linesChanged: 0,
-        status: "FAILED",
-        errorMessage: errMsg,
-      }).catch(() => {});
-
-      results.push({
-        repo: repo.fullName,
-        status: "failed",
-        message: errMsg,
-      });
     }
   }
 

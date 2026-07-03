@@ -7,33 +7,41 @@ datasource db {
   provider = "postgresql"
 }
 
-model UserSettings {
-  id            String   @id @default(cuid())
-  githubToken   String   @default("")
-  nvidiaApiKey  String   @default("")
-  cronSchedule  String   @default("0 */12 * * *")
-  maxCommitsDay Int      @default(1)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+model User {
+  id            String       @id @default(cuid())
+  githubLogin   String       @unique
+  sessionToken  String       @unique
+  githubToken   String       @default("")
+  nvidiaApiKey  String       @default("")
+  cronSchedule  String       @default("0 0 * * *")
+  maxCommitsDay Int          @default(1)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  repositories  Repository[]
 }
 
 model Repository {
-  id            String      @id @default(cuid())
-  owner         String
-  name          String
-  fullName      String      @unique
-  enabled       Boolean     @default(false)
-  lastScannedAt DateTime?
+  id             String      @id @default(cuid())
+  userId         String
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  owner          String
+  name           String
+  fullName       String
+  defaultBranch  String      @default("main")
+  enabled        Boolean     @default(false)
+  lastScannedAt  DateTime?
   lastScannedSha String?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  commits       CommitLog[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  commits        CommitLog[]
+
+  @@unique([userId, fullName])
 }
 
 model CommitLog {
   id            String       @id @default(cuid())
   repositoryId  String
-  repository    Repository   @relation(fields: [repositoryId], references: [id])
+  repository    Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   filePath      String
   commitSha     String?
   commitMessage String

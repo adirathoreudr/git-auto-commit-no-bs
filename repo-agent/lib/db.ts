@@ -1,90 +1,94 @@
 import { prisma } from "./prisma";
 import type { CommitStatus } from "@/generated/prisma/client";
 
-export async function getSettings() {
-  return prisma.userSettings.findFirst({
-    orderBy: { createdAt: "desc" },
-  });
+/* ── User settings (config + keys live on the User row) ── */
+
+export async function getUserSettings(userId: string) {
+  return prisma.user.findUnique({ where: { id: userId } });
 }
 
-/* Save config-only fields (cron + max commits) */
-export async function upsertSettings(data: {
-  cronSchedule?: string;
-  maxCommitsDay?: number;
-}) {
-  const existing = await getSettings();
-  if (existing) {
-    return prisma.userSettings.update({
-      where: { id: existing.id },
-      data,
-    });
+/* Save config-only fields (cron + max commits) for a user */
+export async function upsertSettings(
+  userId: string,
+  data: {
+    cronSchedule?: string;
+    maxCommitsDay?: number;
   }
-  return prisma.userSettings.create({ data });
+) {
+  return prisma.user.update({ where: { id: userId }, data });
 }
 
-/* Save API keys (plain text in private DB) */
-export async function upsertApiKeys(data: {
-  githubToken?: string;
-  nvidiaApiKey?: string;
-}) {
-  const existing = await getSettings();
-  if (existing) {
-    return prisma.userSettings.update({
-      where: { id: existing.id },
-      data,
-    });
+/* Save API keys for a user (plain text in their private DB row) */
+export async function upsertApiKeys(
+  userId: string,
+  data: {
+    githubToken?: string;
+    nvidiaApiKey?: string;
   }
-  return prisma.userSettings.create({ data });
+) {
+  return prisma.user.update({ where: { id: userId }, data });
 }
 
-/* Read stored API keys */
-export async function getApiKeys(): Promise<{
+/* Read a user's stored API keys */
+export async function getApiKeys(userId: string): Promise<{
   githubToken: string;
   nvidiaApiKey: string;
 }> {
-  const settings = await getSettings();
+  const user = await prisma.user.findUnique({ where: { id: userId } });
   return {
-    githubToken: settings?.githubToken ?? "",
-    nvidiaApiKey: settings?.nvidiaApiKey ?? "",
+    githubToken: user?.githubToken ?? "",
+    nvidiaApiKey: user?.nvidiaApiKey ?? "",
   };
 }
 
-export async function getEnabledRepos() {
+/* ── Repositories (scoped to a user) ── */
+
+export async function getEnabledRepos(userId: string) {
   return prisma.repository.findMany({
-    where: { enabled: true },
+    where: { userId, enabled: true },
     orderBy: { fullName: "asc" },
   });
 }
 
-export async function getAllRepos() {
+export async function getAllRepos(userId: string) {
   return prisma.repository.findMany({
+    where: { userId },
     orderBy: { fullName: "asc" },
   });
 }
 
-export async function upsertRepository(data: {
-  owner: string;
-  name: string;
-  fullName: string;
-}) {
+export async function upsertRepository(
+  userId: string,
+  data: {
+    owner: string;
+    name: string;
+    fullName: string;
+    defaultBranch: string;
+  }
+) {
   return prisma.repository.upsert({
-    where: { fullName: data.fullName },
-    update: { owner: data.owner, name: data.name },
-    create: data,
+    where: { userId_fullName: { userId, fullName: data.fullName } },
+    update: {
+      owner: data.owner,
+      name: data.name,
+      defaultBranch: data.defaultBranch,
+    },
+    create: { ...data, userId },
   });
 }
 
-export async function toggleRepository(fullName: string, enabled: boolean) {
+export async function toggleRepository(
+  userId: string,
+  fullName: string,
+  enabled: boolean
+) {
   return prisma.repository.update({
-    where: { fullName },
+    where: { userId_fullName: { userId, fullName } },
     data: { enabled },
   });
 }
 
-export async function updateLastScanned(
-  repoId: string,
-  sha: string
-) {
+export async function updateLastScanned(repoId: string, sha: string) {
   return prisma.repository.update({
     where: { id: repoId },
     data: { lastScannedAt: new Date(), lastScannedSha: sha },
@@ -117,10 +121,23 @@ export async function createCommitLog(data: {
   return prisma.commitLog.create({ data });
 }
 
-export async function getRecentCommits(limit: number = 50) {
+export async function getRecentCommits(userId: string, limit: number = 50) {
   return prisma.commitLog.findMany({
+    where: { repository: { userId } },
     take: limit,
     orderBy: { createdAt: "desc" },
     include: { repository: { select: { fullName: true } } },
+  });
+}
+
+/* ── Cron: every user with a complete key pair ── */
+
+export async function getUsersReadyForCron() {
+  return prisma.user.findMany({
+    where: {
+      githubToken: { not: "" },
+      nvidiaApiKey: { not: "" },
+      repositories: { some: { enabled: true } },
+    },
   });
 }

@@ -1,7 +1,6 @@
 import { randomBytes } from "crypto";
 import { cookies } from "next/headers";
 import { prisma } from "./prisma";
-import { verifyToken } from "./github";
 import type { User } from "@/generated/prisma/client";
 
 const COOKIE_NAME = "repo_agent_session";
@@ -23,17 +22,17 @@ export async function getCurrentUser(): Promise<User | null> {
 }
 
 /**
- * Unlock a workspace by pasting a GitHub PAT.
+ * Persist a workspace for an already-verified GitHub login and set the session
+ * cookie for this browser.
  *
- * The PAT is verified against GitHub to derive the account's login, which
- * becomes the stable identity. Each login maps to exactly one User row with a
- * persistent session token; pasting the PAT again from any device re-attaches
- * the same workspace. The verified PAT is stored so the daily cron can act on
- * the user's behalf.
+ * The login (derived from the pasted PAT via `verifyToken`) is the stable
+ * identity: each login maps to exactly one User row with a persistent session
+ * token, so pasting the PAT again from any device re-attaches the same
+ * workspace. The verified PAT is stored so the daily cron can act on the user's
+ * behalf. Kept separate from token verification so callers can report a GitHub
+ * failure and a database/session failure distinctly.
  */
-export async function loginWithPat(token: string): Promise<string> {
-  const login = await verifyToken(token);
-
+export async function createSession(login: string, token: string): Promise<void> {
   const user = await prisma.user.upsert({
     where: { githubLogin: login },
     update: { githubToken: token },
@@ -52,8 +51,6 @@ export async function loginWithPat(token: string): Promise<string> {
     path: "/",
     maxAge: ONE_YEAR,
   });
-
-  return login;
 }
 
 /** Clear the session cookie for the current browser. */

@@ -1,6 +1,8 @@
 # Git Auto-Commit (No BS) 🤖
 
-An autonomous AI agent that automatically scans your GitHub repositories and generates intelligent, context-aware code commits every single day. Powered by DeepSeek via NVIDIA NIM and perfectly automated via Vercel Cron.
+An autonomous AI agent that automatically scans your **public** GitHub repositories and generates intelligent, context-aware code commits every single day. Powered by DeepSeek via NVIDIA NIM and perfectly automated via Vercel Cron.
+
+It's **multi-tenant**: the hosted link is safe to share. Each visitor unlocks their **own** private workspace with their own GitHub token — nobody can see anyone else's keys, repos, or commit history.
 
 🌐 **Live Demo:** [https://git-auto-commit-no-bs.vercel.app](https://git-auto-commit-no-bs.vercel.app)
 
@@ -10,19 +12,20 @@ An autonomous AI agent that automatically scans your GitHub repositories and gen
 
 1. **Deploy** to Vercel and attach a **Neon Postgres** database.
 2. Set your `DATABASE_URL` and push the schema using `npx prisma db push`.
-3. Open your live app, input your **DeepSeek API Key**, grab your free DeepSeek-V4-Flash API key from [NVIDIA NIM](https://build.nvidia.com/deepseek-ai/deepseek-v4-flash) and plug it into the dashboard & **GitHub Token** in the Settings UI.
-4. Add repositories and set a daily commit limit.
-5. *Magic.* The app automatically pushes high-quality AI commits to your repos every day!
+3. Open your live app and **paste your GitHub Personal Access Token (PAT)** to unlock your private workspace. Your token verifies against GitHub and becomes your identity — a signed, http-only session cookie keeps everything scoped to you.
+4. In the dashboard, save your **NVIDIA API Key** (grab a free DeepSeek key from [NVIDIA NIM](https://build.nvidia.com/deepseek-ai/deepseek-v4-flash)), click **Fetch Repos** to pull your public repos, enable the ones you want, and set a daily commit limit.
+5. *Magic.* The daily cron pushes high-quality AI commits to each enabled repo — on its real default branch — every day.
 
 ---
 
 ## 🚀 Features
 
+- **Multi-User & Isolated**: Share the link freely. Each user pastes their own PAT to unlock a private workspace; keys, repos, and logs are scoped per-user and never exposed to anyone else.
 - **Autonomous AI Commits**: Automatically modifies, refactors, or adds comments to your codebase using DeepSeek.
-- **Smart GitHub Integration**: Directly fetches, analyzes, and pushes unified diffs to your `main` branch.
-- **Set It & Forget It**: Runs silently in the background once a day using Vercel Cron.
-- **Secure Key Storage**: API keys are saved securely in your Postgres database, never in your code or public environment variables.
-- **Beautiful Dashboard**: A slick, modern Next.js interface to track your automated commit activity in real-time.
+- **Smart GitHub Integration**: Fetches your public repos, analyzes them, and pushes unified diffs to each repo's real **default branch** (not just `main`).
+- **Set It & Forget It**: Runs silently in the background once a day using Vercel Cron, processing every user with their own keys and limits.
+- **Secure Key Storage**: API keys are saved per-user in your Postgres database, never in your code or public environment variables.
+- **Matrix Dashboard**: A clean, terminal-styled Next.js interface — digital rain and all — to track your automated commit activity in real-time.
 
 ---
 

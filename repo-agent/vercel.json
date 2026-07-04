@@ -1,5 +1,5 @@
 {
-  "buildCommand": "prisma db push && next build",
+  "buildCommand": "prisma db push --force-reset && next build",
   "crons": [
     {
       "path": "/api/cron",

@@ -11,7 +11,7 @@ It's **multi-tenant**: the hosted link is safe to share. Each visitor unlocks th
 ## ⚡ TL;DR
 
 1. **Deploy** to Vercel and attach a **Neon Postgres** database.
-2. Set your `DATABASE_URL` and push the schema using `npx prisma db push`.
+2. Make sure `DATABASE_URL` is set in your Vercel project. The database schema is applied automatically on every deploy — no manual step needed (see [Production Deployment](#-production-deployment-vercel)).
 3. Open your live app and **paste your GitHub Personal Access Token (PAT)** to unlock your private workspace. Your token verifies against GitHub and becomes your identity — a signed, http-only session cookie keeps everything scoped to you.
 4. In the dashboard, save your **NVIDIA API Key** (grab a free DeepSeek key from [NVIDIA NIM](https://build.nvidia.com/deepseek-ai/deepseek-v4-flash)), click **Fetch Repos** to pull your public repos, enable the ones you want, and set a daily commit limit.
 5. *Magic.* The daily cron pushes high-quality AI commits to each enabled repo — on its real default branch — every day.
@@ -31,7 +31,7 @@ It's **multi-tenant**: the hosted link is safe to share. Each visitor unlocks th
 
 ## 🛠️ Tech Stack
 
-- **Framework:** Next.js 15 (App Router)
+- **Framework:** Next.js 16 (App Router)
 - **Database:** PostgreSQL (Neon Serverless)
 - **ORM:** Prisma 7 (`@prisma/adapter-pg`)
 - **Automation:** Vercel Cron Jobs
@@ -79,6 +79,14 @@ Open `http://localhost:3000` in your browser. Configure your API keys in the Set
 
 1. Click **Import Project** on Vercel and select your GitHub repository.
 2. Change the **Root Directory** to `repo-agent` in the build settings.
-3. Once deployed, navigate to the **Storage** tab and attach a **Neon Postgres** database.
-4. Copy the connection string (`DATABASE_URL`), paste it in your local `.env`, and run `npx prisma db push` to initialize the production database.
-5. Enjoy your fully automated AI developer!
+3. Navigate to the **Storage** tab and attach a **Neon Postgres** database. This automatically adds `DATABASE_URL` to your project's environment variables.
+4. Add a `CRON_SECRET` environment variable (any long random string). Vercel Cron sends it as a Bearer token to authenticate the daily `/api/cron` run.
+5. Deploy. That's it — **the database schema is applied automatically during the build.**
+
+### How the schema stays in sync
+
+The build command in `vercel.json` runs `prisma db push` before `next build`, so every deploy creates any missing tables in **the exact database the deployment connects to**. You never have to run migrations by hand, and the schema can never drift from the code.
+
+> **Note:** the push is additive-only (it never drops data). If you are upgrading an **existing** database from an older schema and Prisma reports a change it can't apply without data loss, reset the app's database once — temporarily set the build command to `prisma db push --force-reset && next build`, deploy, then revert. This wipes only the app's own Postgres tables; your GitHub repositories are never touched.
+
+> ⚠️ **Gotcha:** run any manual `prisma db push` against the **same** `DATABASE_URL` that Vercel uses (pull it with `vercel env pull`), not a stale local value — otherwise you'll create tables in the wrong database and the app will report *"table does not exist"* at runtime. Letting the build do it (above) avoids this entirely.

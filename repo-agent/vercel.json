@@ -1,4 +1,5 @@
 {
+  "buildCommand": "prisma db push --skip-generate && next build",
   "crons": [
     {
       "path": "/api/cron",

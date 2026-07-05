@@ -78,7 +78,7 @@ export default async function DashboardPage() {
 
       <footer className="dash-footer">
         <span>REPO_AGENT v0.6.0</span>
-        <span>DEEPSEEK-R1 · GITHUB REST API · VERCEL CRON</span>
+        <span>DEEPSEEK-V4-FLASH · GITHUB REST API · VERCEL CRON</span>
         <span className="footer-sig">▓▒░ CTRL_YOUR_CODE ░▒▓</span>
       </footer>
     </main>

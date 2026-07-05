@@ -1,5 +1,5 @@
 const NVIDIA_NIM_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
-const MODEL = "deepseek-ai/deepseek-r1";
+const MODEL = "deepseek-ai/deepseek-v4-flash";
 
 const SYSTEM_PROMPT = `You are a strict, autonomous Git maintenance agent. Your task is to analyze the provided code file and generate ONE minimal, non-breaking improvement.
 CONSTRAINTS: Fix typos, add missing docstrings, improve minor formatting, or remove dead code. DO NOT alter business logic, change return types, or modify API endpoints. Max 30 lines changed.
@@ -44,7 +44,9 @@ export async function analyzeFile(
       ],
       temperature: 0.15,
       max_tokens: 4096,
-      response_format: { type: "json_object" },
+      // Non-think mode: fast, deterministic output without reasoning
+      // preambles polluting the JSON payload.
+      chat_template_kwargs: { thinking: false },
     }),
   });
 

@@ -843,8 +843,27 @@ input, button, select, textarea {
 .feed-list {
   display: flex;
   flex-direction: column;
-  max-height: 420px;
+  /* Bounded, compact card: show a few rows and scroll the rest so the
+     feed never pushes the rest of the page down. */
+  max-height: min(46vh, 320px);
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--crt-green-dim) var(--navy-base);
+}
+
+/* Make the feed scrollbar clearly visible so it reads as scrollable */
+.feed-list::-webkit-scrollbar {
+  width: 8px;
+}
+.feed-list::-webkit-scrollbar-track {
+  background: var(--navy-base);
+}
+.feed-list::-webkit-scrollbar-thumb {
+  background: var(--crt-green-dim);
+  border: 2px solid var(--navy-base);
+}
+.feed-list::-webkit-scrollbar-thumb:hover {
+  background: var(--crt-green);
 }
 
 .feed-entry {

@@ -20,7 +20,7 @@ export default async function DashboardPage() {
   const [settings, repos, commits, envStatus] = await Promise.all([
     loadSettings(),
     loadRepos(),
-    loadCommits(50),
+    loadCommits("recent", 50),
     checkEnvStatus(),
   ]);
 

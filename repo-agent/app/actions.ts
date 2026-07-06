@@ -8,7 +8,8 @@ import {
   getAllRepos,
   toggleRepository,
   upsertRepository,
-  getRecentCommits,
+  getCommits,
+  type CommitScope,
 } from "@/lib/db";
 import { getCurrentUser, createSession, logout } from "@/lib/auth";
 import { listRepos, verifyToken } from "@/lib/github";
@@ -172,10 +173,13 @@ export type CommitEntry = {
   repository: { fullName: string };
 };
 
-export async function loadCommits(limit?: number): Promise<CommitEntry[]> {
+export async function loadCommits(
+  scope: CommitScope = "recent",
+  limit?: number
+): Promise<CommitEntry[]> {
   const user = await getCurrentUser();
   if (!user) return [];
-  const rows = await getRecentCommits(user.id, limit ?? 50);
+  const rows = await getCommits(user.id, scope, limit ?? 50);
   return rows as CommitEntry[];
 }
 

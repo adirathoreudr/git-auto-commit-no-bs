@@ -745,6 +745,49 @@ input, button, select, textarea {
   gap: 6px;
 }
 
+/* ─── Commit log tabs (recent / archive) ─── */
+
+.feed-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-dim);
+  background: var(--navy-base);
+}
+
+.feed-tab {
+  background: transparent;
+  border: 1px solid var(--border-dim);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 10px;
+  font-size: 8px;
+  font-family: var(--font-pixel);
+  letter-spacing: 0.06em;
+  transition: all 0.12s;
+}
+
+.feed-tab:hover {
+  border-color: var(--border);
+  color: var(--crt-green);
+}
+
+.feed-tab.active {
+  border-color: var(--crt-green-border);
+  background: rgba(0, 255, 65, 0.06);
+  color: var(--crt-green);
+  text-shadow: 0 0 8px rgba(0, 255, 65, 0.35);
+}
+
+.feed-tabs-note {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.03em;
+}
+
 .stat-pill {
   font-size: 8px;
   font-family: var(--font-pixel);

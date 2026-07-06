@@ -6,6 +6,8 @@ import type { CommitStatus } from "@/generated/prisma/client";
 
 type Props = { initial: CommitEntry[] };
 
+type View = "recent" | "archive";
+
 const GLYPH: Record<CommitStatus, string> = {
   SUCCESS: "OK",
   FAILED:  "!!",
@@ -31,26 +33,42 @@ function relTime(date: Date): string {
 }
 
 export function ActivityFeed({ initial }: Props) {
-  const [commits, setCommits] = useState<CommitEntry[]>(initial);
+  const [view, setView] = useState<View>("recent");
+  const [recent, setRecent] = useState<CommitEntry[]>(initial);
+  // null = not fetched yet (archive is loaded lazily on first open)
+  const [archive, setArchive] = useState<CommitEntry[] | null>(null);
   const [isPending, startTransition] = useTransition();
   const [expanded, setExpanded] = useState<string | null>(null);
 
+  // Auto-refresh only the recent feed; the archive is static history.
   useEffect(() => {
     const t = setInterval(() => {
       startTransition(async () => {
-        const fresh = await loadCommits(50);
-        setCommits(fresh);
+        setRecent(await loadCommits("recent", 50));
       });
     }, 30000);
     return () => clearInterval(t);
   }, []);
 
+  function switchView(next: View) {
+    setExpanded(null);
+    setView(next);
+    if (next === "archive" && archive === null) {
+      startTransition(async () => {
+        setArchive(await loadCommits("archive", 50));
+      });
+    }
+  }
+
   function handleRefresh() {
     startTransition(async () => {
-      const fresh = await loadCommits(50);
-      setCommits(fresh);
+      if (view === "recent") setRecent(await loadCommits("recent", 50));
+      else setArchive(await loadCommits("archive", 50));
     });
   }
+
+  const commits = view === "recent" ? recent : archive ?? [];
+  const loadingArchive = view === "archive" && archive === null;
 
   const okCount   = commits.filter((c) => c.status === "SUCCESS").length;
   const failCount = commits.filter((c) => c.status === "FAILED").length;
@@ -76,10 +94,43 @@ export function ActivityFeed({ initial }: Props) {
         </button>
       </div>
 
-      {commits.length === 0 ? (
+      <div className="feed-tabs">
+        <button
+          type="button"
+          className={`feed-tab ${view === "recent" ? "active" : ""}`}
+          onClick={() => switchView("recent")}
+        >
+          RECENT
+        </button>
+        <button
+          type="button"
+          className={`feed-tab ${view === "archive" ? "active" : ""}`}
+          onClick={() => switchView("archive")}
+        >
+          ARCHIVE
+        </button>
+        <span className="feed-tabs-note">
+          {view === "recent" ? "last 2 days" : "older than 2 days"}
+        </span>
+      </div>
+
+      {loadingArchive ? (
         <div className="empty-feed">
-          <p>AWAITING COMMIT DATA</p>
-          <p>ENABLE REPOS → RUN CRON</p>
+          <p>LOADING ARCHIVE…</p>
+        </div>
+      ) : commits.length === 0 ? (
+        <div className="empty-feed">
+          {view === "recent" ? (
+            <>
+              <p>AWAITING COMMIT DATA</p>
+              <p>ENABLE REPOS → RUN CRON</p>
+            </>
+          ) : (
+            <>
+              <p>NO ARCHIVED ENTRIES</p>
+              <p>OLDER THAN 2 DAYS APPEARS HERE</p>
+            </>
+          )}
         </div>
       ) : (
         <div className="feed-list">

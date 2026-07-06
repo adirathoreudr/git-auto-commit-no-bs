@@ -121,9 +121,29 @@ export async function createCommitLog(data: {
   return prisma.commitLog.create({ data });
 }
 
-export async function getRecentCommits(userId: string, limit: number = 50) {
+/**
+ * Entries older than this drop out of the default "recent" feed and into the
+ * archive. Nothing is deleted — the split is purely by age so the feed stays
+ * tidy while full history remains one click away.
+ */
+export const ARCHIVE_AFTER_DAYS = 2;
+
+export type CommitScope = "recent" | "archive";
+
+export async function getCommits(
+  userId: string,
+  scope: CommitScope = "recent",
+  limit: number = 50
+) {
+  const cutoff = new Date(
+    Date.now() - ARCHIVE_AFTER_DAYS * 24 * 60 * 60 * 1000
+  );
+
   return prisma.commitLog.findMany({
-    where: { repository: { userId } },
+    where: {
+      repository: { userId },
+      createdAt: scope === "recent" ? { gte: cutoff } : { lt: cutoff },
+    },
     take: limit,
     orderBy: { createdAt: "desc" },
     include: { repository: { select: { fullName: true } } },

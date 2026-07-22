@@ -1,8 +1,10 @@
+/** Base URL for GitHub REST API v3. */
+const GITHUB_API = "https://api.github.com";
 const GITHUB_API = "https://api.github.com";
 
 interface GitHubRepo {
   name: string;
-  full_name: string;
+  fork: boolean;
   owner: { login: string };
   default_branch: string;
   private: boolean;

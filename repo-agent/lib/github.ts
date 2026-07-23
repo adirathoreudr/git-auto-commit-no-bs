@@ -1,10 +1,9 @@
 /** Base URL for GitHub REST API v3. */
 const GITHUB_API = "https://api.github.com";
-const GITHUB_API = "https://api.github.com";
 
 interface GitHubRepo {
   name: string;
-  fork: boolean;
+  full_name: string;
   owner: { login: string };
   default_branch: string;
   private: boolean;
@@ -84,6 +83,36 @@ const SKIP_FILES = new Set([
   "Thumbs.db",
 ]);
 
+/**
+ * Build/deploy-critical manifests and config. The agent must never edit these:
+ * even a perfectly applied change here can break a project's production build.
+ * Matched case-insensitively against the file's basename.
+ */
+const SKIP_CONFIG = new Set([
+  "package.json",
+  "tsconfig.json",
+  "jsconfig.json",
+  "vercel.json",
+  "netlify.toml",
+  "dockerfile",
+  "docker-compose.yml",
+  "docker-compose.yaml",
+  "makefile",
+  "requirements.txt",
+  "pyproject.toml",
+  "setup.py",
+  "setup.cfg",
+  "go.mod",
+  "go.sum",
+  "cargo.toml",
+  "gemfile",
+  "pom.xml",
+  "build.gradle",
+]);
+
+/** Matches config files like next.config.ts, vite.config.js, tailwind.config.mjs. */
+const CONFIG_FILE_RE = /\.config\.(js|ts|mjs|cjs)$/i;
+
 const MAX_FILE_SIZE = 100_000;
 
 function headers(token: string): Record<string, string> {
@@ -161,6 +190,8 @@ export async function fetchTree(
 
     const name = item.path.split("/").pop() || "";
     if (SKIP_FILES.has(name)) return false;
+    if (SKIP_CONFIG.has(name.toLowerCase())) return false;
+    if (CONFIG_FILE_RE.test(name)) return false;
 
     const ext = name.includes(".") ? "." + name.split(".").pop()!.toLowerCase() : "";
     if (SKIP_EXTENSIONS.has(ext)) return false;
@@ -282,41 +313,101 @@ export async function createCommit(
   };
 }
 
-export function applyUnifiedDiff(original: string, diff: string): string {
-  const lines = original.split("\n");
-  const diffLines = diff.split("\n");
-  const hunks: { start: number; remove: string[]; add: string[] }[] = [];
+type DiffLine = { tag: " " | "-" | "+"; text: string };
+type Hunk = { oldStart: number; lines: DiffLine[] };
 
+/**
+ * Apply a unified diff to `original` and return the patched text.
+ *
+ * Strict on purpose: every context and removed line in each hunk must match the
+ * original exactly at its expected position. If a hunk does not apply cleanly
+ * the function throws, so the caller skips the commit instead of pushing a
+ * corrupted file.
+ *
+ * The previous implementation ignored context lines and blindly spliced by line
+ * number, which duplicated lines and dropped directives (e.g. `"use client"`),
+ * producing commits that broke downstream builds. This version reconstructs the
+ * file by walking each hunk against the original and only ever emits verified
+ * content plus the hunk's added lines.
+ */
+export function applyUnifiedDiff(original: string, diff: string): string {
+  const orig = original.split("\n");
+  const diffLines = diff.split("\n");
+
+  const hunks: Hunk[] = [];
   let i = 0;
   while (i < diffLines.length) {
-    const line = diffLines[i];
-    const match = line.match(/^@@\s*-(\d+)(?:,\d+)?\s*\+\d+(?:,\d+)?\s*@@/);
-    if (match) {
-      const start = parseInt(match[1], 10);
-      const remove: string[] = [];
-      const add: string[] = [];
+    const header = diffLines[i].match(
+      /^@@\s*-(\d+)(?:,\d+)?\s*\+(\d+)(?:,\d+)?\s*@@/
+    );
+    if (!header) {
       i++;
-      while (i < diffLines.length && !diffLines[i].startsWith("@@")) {
-        const dl = diffLines[i];
-        if (dl.startsWith("-")) {
-          remove.push(dl.slice(1));
-        } else if (dl.startsWith("+")) {
-          add.push(dl.slice(1));
-        }
-        i++;
+      continue;
+    }
+    const oldStart = parseInt(header[1], 10);
+    const lines: DiffLine[] = [];
+    i++;
+    while (i < diffLines.length && !diffLines[i].startsWith("@@")) {
+      const dl = diffLines[i];
+      if (
+        dl.startsWith("--- ") ||
+        dl.startsWith("+++ ") ||
+        dl.startsWith("diff --git")
+      ) {
+        break; // next file in a multi-file diff
       }
-      hunks.push({ start, remove, add });
-    } else {
+      if (dl.startsWith("\\")) {
+        i++; // "\ No newline at end of file"
+        continue;
+      }
+      if (dl.startsWith("+")) lines.push({ tag: "+", text: dl.slice(1) });
+      else if (dl.startsWith("-")) lines.push({ tag: "-", text: dl.slice(1) });
+      else if (dl.startsWith(" ")) lines.push({ tag: " ", text: dl.slice(1) });
+      else if (dl === "") lines.push({ tag: " ", text: "" }); // bare empty context line
+      else break; // unexpected content — end of hunk body
       i++;
+    }
+    hunks.push({ oldStart, lines });
+  }
+
+  if (hunks.length === 0) {
+    throw new Error("No applicable hunks found in diff");
+  }
+
+  hunks.sort((a, b) => a.oldStart - b.oldStart);
+
+  const out: string[] = [];
+  let cursor = 0; // next unconsumed original line (0-based)
+
+  for (const hunk of hunks) {
+    const start = hunk.oldStart - 1;
+    if (start < cursor) {
+      throw new Error(`Overlapping or out-of-order hunk at line ${hunk.oldStart}`);
+    }
+    if (start > orig.length) {
+      throw new Error(`Hunk starts past end of file at line ${hunk.oldStart}`);
+    }
+    // Copy untouched lines before the hunk.
+    out.push(...orig.slice(cursor, start));
+    cursor = start;
+
+    for (const { tag, text } of hunk.lines) {
+      if (tag === "+") {
+        out.push(text);
+        continue;
+      }
+      // Context or removal must match the original exactly.
+      if (cursor >= orig.length || orig[cursor] !== text) {
+        throw new Error(
+          `Diff context mismatch at line ${cursor + 1}: ` +
+            `expected ${JSON.stringify(text)}, found ${JSON.stringify(orig[cursor])}`
+        );
+      }
+      if (tag === " ") out.push(orig[cursor]);
+      cursor++; // removals are consumed but not emitted
     }
   }
 
-  hunks.sort((a, b) => b.start - a.start);
-
-  for (const hunk of hunks) {
-    const idx = hunk.start - 1;
-    lines.splice(idx, hunk.remove.length, ...hunk.add);
-  }
-
-  return lines.join("\n");
+  out.push(...orig.slice(cursor));
+  return out.join("\n");
 }

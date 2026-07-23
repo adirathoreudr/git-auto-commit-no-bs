@@ -72,7 +72,38 @@ async function processRepo(
     return { status: "skipped", message: validation.reason || "Invalid diff" };
   }
 
-  const newContent = applyUnifiedDiff(content, aiResult.unified_diff);
+  // Apply the diff strictly. If it does not match the file cleanly, skip the
+  // commit rather than pushing a corrupted file that would break the repo's
+  // build. A no-op result is skipped too.
+  let newContent: string;
+  try {
+    newContent = applyUnifiedDiff(content, aiResult.unified_diff);
+  } catch (e) {
+    const reason = `Diff did not apply cleanly: ${e instanceof Error ? e.message : String(e)}`;
+    await createCommitLog({
+      repositoryId: repo.id,
+      filePath: targetFile.path,
+      commitMessage: aiResult.commit_message || "N/A",
+      diffSummary: aiResult.unified_diff || "",
+      linesChanged: 0,
+      status: "SKIPPED",
+      errorMessage: reason,
+    });
+    return { status: "skipped", message: reason };
+  }
+
+  if (newContent === content) {
+    await createCommitLog({
+      repositoryId: repo.id,
+      filePath: targetFile.path,
+      commitMessage: aiResult.commit_message || "N/A",
+      diffSummary: aiResult.unified_diff || "",
+      linesChanged: 0,
+      status: "SKIPPED",
+      errorMessage: "Diff produced no change",
+    });
+    return { status: "skipped", message: "No effective change" };
+  }
 
   const commitResult = await createCommit(
     githubToken,

@@ -1,4 +1,4 @@
-"use client";
+// IdentityBar displays the current user's login, active repo count, total commits, and a sign-out button.
 
 import { useTransition } from "react";
 import { signOut } from "../actions";

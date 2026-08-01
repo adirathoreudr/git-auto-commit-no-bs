@@ -18,6 +18,22 @@ export interface AIRefactorResult {
   isValid: boolean;
 }
 
+/** Attempts (including the first) for transient upstream failures. */
+const MAX_ATTEMPTS = 3;
+/** Base backoff; delay is BACKOFF_MS * 2^attempt, so ~1s then ~2s. */
+const BACKOFF_MS = 1000;
+
+/**
+ * Transient upstream conditions worth retrying: rate limiting, the shared NIM
+ * tier's 529 "Service temporarily overloaded", and ordinary gateway blips.
+ * Anything else (401 bad key, 404 unknown model) is a real error and fails fast.
+ */
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export async function analyzeFile(
   filePath: string,
   fileContent: string,
@@ -30,41 +46,60 @@ export async function analyzeFile(
 
   const userPrompt = `File: ${filePath}\n\n\`\`\`\n${fileContent}\n\`\`\``;
 
-  const res = await fetch(NVIDIA_NIM_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userPrompt },
-      ],
-      temperature: 0.15,
-      max_tokens: 4096,
-      // Non-think mode: fast, deterministic output without reasoning
-      // preambles polluting the JSON payload.
-      chat_template_kwargs: { thinking: false },
-    }),
-  });
+  let lastError = "";
 
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`NVIDIA NIM API ${res.status}: ${body}`);
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) await sleep(BACKOFF_MS * 2 ** (attempt - 1));
+
+    let res: Response;
+    try {
+      res = await fetch(NVIDIA_NIM_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: 0.15,
+          max_tokens: 4096,
+          // Non-think mode: fast, deterministic output without reasoning
+          // preambles polluting the JSON payload.
+          chat_template_kwargs: { thinking: false },
+        }),
+      });
+    } catch (e) {
+      // Network-level failure (DNS, socket reset) — worth another attempt.
+      lastError = `NVIDIA NIM request failed: ${e instanceof Error ? e.message : String(e)}`;
+      continue;
+    }
+
+    if (!res.ok) {
+      const body = await res.text();
+      lastError = `NVIDIA NIM API ${res.status}: ${body}`;
+      if (isRetryableStatus(res.status)) continue;
+      throw new Error(lastError);
+    }
+
+    const data = (await res.json()) as {
+      choices?: { message?: { content?: string } }[];
+    };
+
+    const raw = data.choices?.[0]?.message?.content;
+    if (!raw) {
+      // Occasionally NIM returns 200 with no completion; treat as transient.
+      lastError = "Empty response from DeepSeek";
+      continue;
+    }
+
+    return parseAIResponse(raw);
   }
 
-  const data = (await res.json()) as {
-    choices: { message: { content: string } }[];
-  };
-
-  const raw = data.choices[0]?.message?.content;
-  if (!raw) {
-    throw new Error("Empty response from DeepSeek");
-  }
-
-  return parseAIResponse(raw);
+  throw new Error(`${lastError} (after ${MAX_ATTEMPTS} attempts)`);
 }
 
 function parseAIResponse(raw: string): AIRefactorResult {

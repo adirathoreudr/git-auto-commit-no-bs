@@ -316,19 +316,80 @@ export async function createCommit(
 type DiffLine = { tag: " " | "-" | "+"; text: string };
 type Hunk = { oldStart: number; lines: DiffLine[] };
 
+/** True when the hunk's expected old lines sit exactly at `pos` in `orig`. */
+function matchesAt(
+  orig: string[],
+  pos: number,
+  expected: string[],
+  ignoreTrailingWs: boolean
+): boolean {
+  if (pos < 0 || pos + expected.length > orig.length) return false;
+  for (let k = 0; k < expected.length; k++) {
+    const actual = orig[pos + k];
+    const want = expected[k];
+    if (actual === want) continue;
+    if (ignoreTrailingWs && actual.trimEnd() === want.trimEnd()) continue;
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Locate where a hunk actually belongs, starting from the line number the diff
+ * claims and searching outward.
+ *
+ * Model-generated diffs routinely carry inaccurate `@@` line numbers even when
+ * the surrounding context is quoted correctly, so anchoring on the number alone
+ * rejects otherwise-good patches. Anchoring on the *content* is both more
+ * forgiving and safer. Returns -1 when the context appears nowhere, which means
+ * the diff genuinely does not describe this file.
+ */
+function findHunkPosition(
+  orig: string[],
+  expected: string[],
+  hint: number,
+  minPos: number
+): number {
+  // A pure-insertion hunk has nothing to anchor to; trust the hint.
+  if (expected.length === 0) {
+    return Math.min(Math.max(hint, minPos), orig.length);
+  }
+  // Exact match first; only then tolerate trailing-whitespace drift.
+  for (const ignoreTrailingWs of [false, true]) {
+    if (hint >= minPos && matchesAt(orig, hint, expected, ignoreTrailingWs)) {
+      return hint;
+    }
+    for (let delta = 1; delta <= orig.length; delta++) {
+      const back = hint - delta;
+      const forward = hint + delta;
+      const backOk = back >= minPos;
+      const forwardOk = forward + expected.length <= orig.length;
+      if (backOk && matchesAt(orig, back, expected, ignoreTrailingWs)) return back;
+      if (forwardOk && matchesAt(orig, forward, expected, ignoreTrailingWs)) {
+        return forward;
+      }
+      if (!backOk && !forwardOk) break;
+    }
+  }
+  return -1;
+}
+
 /**
  * Apply a unified diff to `original` and return the patched text.
  *
- * Strict on purpose: every context and removed line in each hunk must match the
- * original exactly at its expected position. If a hunk does not apply cleanly
- * the function throws, so the caller skips the commit instead of pushing a
- * corrupted file.
+ * Every context and removed line must match the original exactly (modulo
+ * trailing whitespace) before anything is emitted, so a diff that does not
+ * describe this file throws and the caller skips the commit rather than
+ * pushing a corrupted file.
  *
- * The previous implementation ignored context lines and blindly spliced by line
+ * Hunks are located by *content*, not by the `@@` line number: the stated
+ * position is only a hint, and the real position is found by searching outward
+ * from it. Model-written diffs frequently miscount lines while quoting context
+ * correctly, and rejecting those wasted otherwise-valid commits.
+ *
+ * The original implementation ignored context lines and blindly spliced by line
  * number, which duplicated lines and dropped directives (e.g. `"use client"`),
- * producing commits that broke downstream builds. This version reconstructs the
- * file by walking each hunk against the original and only ever emits verified
- * content plus the hunk's added lines.
+ * producing commits that broke downstream builds.
  */
 export function applyUnifiedDiff(original: string, diff: string): string {
   const orig = original.split("\n");
@@ -380,13 +441,20 @@ export function applyUnifiedDiff(original: string, diff: string): string {
   let cursor = 0; // next unconsumed original line (0-based)
 
   for (const hunk of hunks) {
-    const start = hunk.oldStart - 1;
-    if (start < cursor) {
-      throw new Error(`Overlapping or out-of-order hunk at line ${hunk.oldStart}`);
+    // Lines the hunk expects to find in the original, in order.
+    const expected = hunk.lines
+      .filter((l) => l.tag !== "+")
+      .map((l) => l.text);
+
+    const start = findHunkPosition(orig, expected, hunk.oldStart - 1, cursor);
+    if (start === -1) {
+      const first = expected[0] ?? "";
+      throw new Error(
+        `Hunk near line ${hunk.oldStart} does not match the file ` +
+          `(context not found anywhere): ${JSON.stringify(first.slice(0, 80))}`
+      );
     }
-    if (start > orig.length) {
-      throw new Error(`Hunk starts past end of file at line ${hunk.oldStart}`);
-    }
+
     // Copy untouched lines before the hunk.
     out.push(...orig.slice(cursor, start));
     cursor = start;
@@ -396,13 +464,8 @@ export function applyUnifiedDiff(original: string, diff: string): string {
         out.push(text);
         continue;
       }
-      // Context or removal must match the original exactly.
-      if (cursor >= orig.length || orig[cursor] !== text) {
-        throw new Error(
-          `Diff context mismatch at line ${cursor + 1}: ` +
-            `expected ${JSON.stringify(text)}, found ${JSON.stringify(orig[cursor])}`
-        );
-      }
+      // Position was verified above; emit the original line so the file's own
+      // whitespace always wins over the diff's rendering of it.
       if (tag === " ") out.push(orig[cursor]);
       cursor++; // removals are consumed but not emitted
     }

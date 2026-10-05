@@ -13,7 +13,7 @@ It's **multi-tenant**: the hosted link is safe to share. Each visitor unlocks th
 1. **Deploy** to Vercel and attach a **Neon Postgres** database.
 2. Make sure `DATABASE_URL` is set in your Vercel project. The database schema is applied automatically on every deploy — no manual step needed (see [Production Deployment](#-production-deployment-vercel)).
 3. Open your live app and **paste your GitHub Personal Access Token (PAT)** to unlock your private workspace. Your token verifies against GitHub and becomes your identity — a signed, http-only session cookie keeps everything scoped to you.
-4. In the dashboard, save your **NVIDIA API Key** (grab a free DeepSeek key from [NVIDIA NIM](https://build.nvidia.com/deepseek-ai/deepseek-v4-flash)), click **Fetch Repos** to pull your public repos, enable the ones you want, and set a daily commit limit.
+4. In the dashboard, save your **NVIDIA API Key** (grab a free key from [NVIDIA NIM](https://build.nvidia.com/models)), click **Fetch Repos** to pull your public repos, enable the ones you want, and set a daily commit limit.
 5. *Magic.* The daily cron pushes high-quality AI commits to each enabled repo — on its real default branch — every day.
 
 ---
@@ -73,6 +73,11 @@ npm run dev
 ```
 Open `http://localhost:3000` in your browser. Configure your API keys in the Settings panel and start automating!
 
+### 6. Run the tests
+```bash
+npm test
+```
+
 ---
 
 ## 🌍 Production Deployment (Vercel)
@@ -81,7 +86,12 @@ Open `http://localhost:3000` in your browser. Configure your API keys in the Set
 2. Change the **Root Directory** to `repo-agent` in the build settings.
 3. Navigate to the **Storage** tab and attach a **Neon Postgres** database. This automatically adds `DATABASE_URL` to your project's environment variables.
 4. Add a `CRON_SECRET` environment variable (any long random string). Vercel Cron sends it as a Bearer token to authenticate the daily `/api/cron` run.
-5. Deploy. That's it — **the database schema is applied automatically during the build.**
+5. *(Optional)* Add `NVIDIA_MODEL` to pin a specific NIM model id (e.g. `deepseek-ai/deepseek-v4`). You normally don't need it — see below.
+6. Deploy. That's it — **the database schema is applied automatically during the build.**
+
+### When NVIDIA retires a model
+
+NVIDIA retires model snapshots regularly (the API answers `410 Gone … has reached its end of life`). The agent doesn't depend on one hardcoded model: it reads NIM's model catalog, tries a ranked list of DeepSeek models (then Qwen/Llama as a last resort), and when a model returns 404/410 it skips it for the rest of the run and moves on to the next one. If you want a particular model, set `NVIDIA_MODEL`; it's tried first and still falls back if it gets retired.
 
 ### How the schema stays in sync
 

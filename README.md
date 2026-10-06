@@ -93,6 +93,8 @@ npm test
 
 NVIDIA retires model snapshots regularly (the API answers `410 Gone … has reached its end of life`). The agent doesn't depend on one hardcoded model: it reads NIM's model catalog, tries a ranked list of DeepSeek models (then Qwen/Llama as a last resort), and when a model returns 404/410 it skips it for the rest of the run and moves on to the next one. If you want a particular model, set `NVIDIA_MODEL`; it's tried first and still falls back if it gets retired.
 
+NVIDIA's free tier can also be slow. Each NIM request is capped at 90 s (override with `NIM_REQUEST_TIMEOUT_MS`); a model that doesn't answer in time is skipped for the next one, and enabled repos run in parallel within the cron's 300 s limit. If a run still can't finish, every repo gets an explicit ERR row saying what timed out — the log is never left empty.
+
 ### How the schema stays in sync
 
 The build command in `vercel.json` runs `prisma db push` before `next build`, so every deploy creates any missing tables in **the exact database the deployment connects to**. You never have to run migrations by hand, and the schema can never drift from the code.

@@ -8,10 +8,16 @@ import {
 } from "@/lib/db";
 import { fetchTree, fetchFileContent, createCommit, applyUnifiedDiff } from "@/lib/github";
 import { analyzeFile, validateDiff } from "@/lib/ai";
+import { mapWithConcurrency } from "@/lib/concurrency";
 import type { Repository } from "@/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+
+/** Stop starting AI work this long before Vercel kills the function. */
+const SAFETY_MARGIN_MS = 30_000;
+/** Repos processed in parallel, so one slow repo doesn't starve the rest. */
+const REPO_CONCURRENCY = 4;
 
 interface CronResult {
   user: string;
@@ -24,7 +30,8 @@ async function processRepo(
   repo: Repository,
   githubToken: string,
   nvidiaApiKey: string,
-  maxCommitsDay: number
+  maxCommitsDay: number,
+  deadline: number
 ): Promise<{ status: string; message: string }> {
   const todayCount = await getCommitsToday(repo.id);
   if (todayCount >= maxCommitsDay) {
@@ -56,7 +63,9 @@ async function processRepo(
     targetFile.sha
   );
 
-  const aiResult = await analyzeFile(targetFile.path, content, nvidiaApiKey);
+  const aiResult = await analyzeFile(targetFile.path, content, nvidiaApiKey, {
+    deadline,
+  });
 
   const validation = validateDiff(aiResult);
   if (!validation.valid) {
@@ -136,7 +145,7 @@ async function processRepo(
 
   return {
     status: "success",
-    message: `Committed ${commitResult.sha.slice(0, 7)}: ${aiResult.commit_message}`,
+    message: `Committed ${commitResult.sha.slice(0, 7)} via ${aiResult.model}: ${aiResult.commit_message}`,
   };
 }
 
@@ -153,24 +162,31 @@ export async function GET(request: Request) {
     return NextResponse.json({ message: "No users ready for cron" });
   }
 
-  const results: CronResult[] = [];
+  const deadline = Date.now() + maxDuration * 1000 - SAFETY_MARGIN_MS;
 
+  const jobs = [];
   for (const user of users) {
-    const repos = await getEnabledRepos(user.id);
+    for (const repo of await getEnabledRepos(user.id)) {
+      jobs.push({ user, repo });
+    }
+  }
 
-    for (const repo of repos) {
+  // Each repo always ends with a log row: a timeout surfaces as a FAILED
+  // entry instead of Vercel killing the run before anything is written.
+  const results: CronResult[] = await mapWithConcurrency(
+    jobs,
+    REPO_CONCURRENCY,
+    async ({ user, repo }) => {
+      let result: CronResult;
       try {
         const outcome = await processRepo(
           repo,
           user.githubToken,
           user.nvidiaApiKey,
-          user.maxCommitsDay
+          user.maxCommitsDay,
+          deadline
         );
-        results.push({
-          user: user.githubLogin,
-          repo: repo.fullName,
-          ...outcome,
-        });
+        result = { user: user.githubLogin, repo: repo.fullName, ...outcome };
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         await createCommitLog({
@@ -182,15 +198,17 @@ export async function GET(request: Request) {
           status: "FAILED",
           errorMessage: errMsg,
         }).catch(() => {});
-        results.push({
+        result = {
           user: user.githubLogin,
           repo: repo.fullName,
           status: "failed",
           message: errMsg,
-        });
+        };
       }
+      console.log(`[cron] ${result.repo}: ${result.status} — ${result.message}`);
+      return result;
     }
-  }
+  );
 
   return NextResponse.json({ results, timestamp: new Date().toISOString() });
 }

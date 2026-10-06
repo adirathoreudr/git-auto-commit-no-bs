@@ -44,12 +44,36 @@ export interface AIRefactorResult {
   unified_diff: string;
   commit_message: string;
   isValid: boolean;
+  /** NIM model that produced this result. */
+  model?: string;
 }
 
 /** Attempts (including the first) for transient upstream failures. */
 const MAX_ATTEMPTS = 3;
 /** Base backoff; delay is BACKOFF_MS * 2^attempt, so ~1s then ~2s. */
 const BACKOFF_MS = 1000;
+/**
+ * Per-request ceiling. NIM's free tier can queue a request for minutes; without
+ * a cap one slow model eats the whole cron run and Vercel kills it before any
+ * repo is logged. NIM_REQUEST_TIMEOUT_MS overrides it.
+ */
+const DEFAULT_REQUEST_TIMEOUT_MS = 90_000;
+const DISCOVERY_TIMEOUT_MS = 10_000;
+/** Don't start a request with less than this left before the caller's deadline. */
+const MIN_REQUEST_BUDGET_MS = 15_000;
+
+function requestTimeoutMs(deadline?: number): number {
+  const base = Number(process.env.NIM_REQUEST_TIMEOUT_MS) || DEFAULT_REQUEST_TIMEOUT_MS;
+  return deadline === undefined ? base : Math.min(base, deadline - Date.now());
+}
+
+const outOfTime = (deadline?: number) =>
+  deadline !== undefined && deadline - Date.now() < MIN_REQUEST_BUDGET_MS;
+
+function isTimeout(e: unknown): boolean {
+  const name = (e as { name?: unknown } | null)?.name;
+  return name === "TimeoutError" || name === "AbortError";
+}
 
 /**
  * Transient upstream conditions worth retrying: rate limiting, the shared NIM
@@ -80,11 +104,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * followed by any other DeepSeek model. Falls back to DEFAULT_MODELS if the
  * catalog can't be read, so discovery never adds a failure mode of its own.
  */
-async function discoverModels(apiKey: string): Promise<string[]> {
+async function discoverModels(apiKey: string, deadline?: number): Promise<string[]> {
   if (discoveredModels) return discoveredModels;
   try {
     const res = await fetch(NVIDIA_MODELS_URL, {
       headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(
+        Math.max(1, Math.min(DISCOVERY_TIMEOUT_MS, requestTimeoutMs(deadline)))
+      ),
     });
     if (!res.ok) return DEFAULT_MODELS;
     const data = (await res.json()) as { data?: { id?: unknown }[] };
@@ -105,9 +132,9 @@ async function discoverModels(apiKey: string): Promise<string[]> {
   }
 }
 
-async function candidateModels(apiKey: string): Promise<string[]> {
+async function candidateModels(apiKey: string, deadline?: number): Promise<string[]> {
   const override = process.env.NVIDIA_MODEL?.trim();
-  const ordered = [override, lastGoodModel, ...(await discoverModels(apiKey))];
+  const ordered = [override, lastGoodModel, ...(await discoverModels(apiKey, deadline))];
   return [...new Set(ordered)].filter(
     (m): m is string => !!m && !deadModels.has(m)
   );
@@ -116,22 +143,30 @@ async function candidateModels(apiKey: string): Promise<string[]> {
 type ModelOutcome =
   | { kind: "ok"; raw: string }
   | { kind: "unavailable"; error: string }
+  | { kind: "timeout"; error: string }
   | { kind: "failed"; error: string };
 
 /** One model, with retries for transient upstream failures. */
 async function callModel(
   model: string,
   apiKey: string,
-  userPrompt: string
+  userPrompt: string,
+  deadline?: number
 ): Promise<ModelOutcome> {
   let lastError = "";
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (attempt > 0) await sleep(BACKOFF_MS * 2 ** (attempt - 1));
+    if (outOfTime(deadline)) {
+      return { kind: "failed", error: `${lastError} (out of time budget for retries)` };
+    }
 
-    let res: Response;
+    const timeoutMs = requestTimeoutMs(deadline);
+    let ok: boolean;
+    let status: number;
+    let text: string;
     try {
-      res = await fetch(NVIDIA_NIM_URL, {
+      const res = await fetch(NVIDIA_NIM_URL, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -144,7 +179,9 @@ async function callModel(
             { role: "user", content: userPrompt },
           ],
           temperature: 0.15,
-          max_tokens: 4096,
+          // Diffs are capped at 30 lines; a smaller ceiling keeps slow
+          // generations from running into the request timeout.
+          max_tokens: 2048,
           // Non-think mode: fast, deterministic output without reasoning
           // preambles polluting the JSON payload. DeepSeek-specific template
           // flag, so other fallback models don't get it.
@@ -152,26 +189,37 @@ async function callModel(
             ? { chat_template_kwargs: { thinking: false } }
             : {}),
         }),
+        // Covers the body read too, so a stalled stream can't hang the run.
+        signal: AbortSignal.timeout(timeoutMs),
       });
+      ok = res.ok;
+      status = res.status;
+      text = await res.text();
     } catch (e) {
+      if (isTimeout(e)) {
+        return { kind: "timeout", error: `timed out after ${Math.round(timeoutMs / 1000)}s` };
+      }
       // Network-level failure (DNS, socket reset) — worth another attempt.
       lastError = `NVIDIA NIM request failed: ${e instanceof Error ? e.message : String(e)}`;
       continue;
     }
 
-    if (!res.ok) {
-      const body = await res.text();
-      lastError = `NVIDIA NIM API ${res.status}: ${body}`;
-      if (isModelUnavailable(res.status, body)) {
-        return { kind: "unavailable", error: `HTTP ${res.status}` };
+    if (!ok) {
+      lastError = `NVIDIA NIM API ${status}: ${text}`;
+      if (isModelUnavailable(status, text)) {
+        return { kind: "unavailable", error: `HTTP ${status}` };
       }
-      if (isRetryableStatus(res.status)) continue;
+      if (isRetryableStatus(status)) continue;
       throw new Error(lastError);
     }
 
-    const data = (await res.json()) as {
-      choices?: { message?: { content?: string } }[];
-    };
+    let data: { choices?: { message?: { content?: string } }[] };
+    try {
+      data = JSON.parse(text);
+    } catch {
+      lastError = `Malformed response from ${model}: ${text.slice(0, 200)}`;
+      continue;
+    }
 
     const raw = data.choices?.[0]?.message?.content;
     if (!raw) {
@@ -186,10 +234,19 @@ async function callModel(
   return { kind: "failed", error: `${lastError} (after ${MAX_ATTEMPTS} attempts)` };
 }
 
+export interface AnalyzeOptions {
+  /**
+   * Epoch ms by which the call must be done (e.g. the cron's function limit).
+   * Requests are cut short to fit, and none starts with too little time left.
+   */
+  deadline?: number;
+}
+
 export async function analyzeFile(
   filePath: string,
   fileContent: string,
-  apiKeyOverride?: string
+  apiKeyOverride?: string,
+  { deadline }: AnalyzeOptions = {}
 ): Promise<AIRefactorResult> {
   const apiKey = apiKeyOverride || process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
@@ -198,25 +255,32 @@ export async function analyzeFile(
 
   const userPrompt = `File: ${filePath}\n\n\`\`\`\n${fileContent}\n\`\`\``;
   const tried: string[] = [];
+  const triedSummary = () => tried.join(", ") || "none";
 
-  for (const model of await candidateModels(apiKey)) {
-    const outcome = await callModel(model, apiKey, userPrompt);
+  for (const model of await candidateModels(apiKey, deadline)) {
+    if (outOfTime(deadline)) {
+      throw new Error(`Out of time budget (cron limit). Tried: ${triedSummary()}.`);
+    }
+
+    const outcome = await callModel(model, apiKey, userPrompt, deadline);
 
     if (outcome.kind === "ok") {
       lastGoodModel = model;
-      return parseAIResponse(outcome.raw);
+      return { ...parseAIResponse(outcome.raw), model };
     }
     if (outcome.kind === "failed") throw new Error(outcome.error);
 
-    // Retired or unknown model: remember it so later repos in this run skip
-    // it, and move straight on to the next candidate.
-    deadModels.add(model);
-    if (lastGoodModel === model) lastGoodModel = null;
     tried.push(`${model} (${outcome.error})`);
+    // A slow model may be fine next time; only a retired/unknown one is
+    // remembered so later repos in this run skip it.
+    if (outcome.kind === "unavailable") {
+      deadModels.add(model);
+      if (lastGoodModel === model) lastGoodModel = null;
+    }
   }
 
   throw new Error(
-    `No usable NVIDIA NIM model. Tried: ${tried.join(", ") || "none"}. ` +
+    `No usable NVIDIA NIM model. Tried: ${triedSummary()}. ` +
       "Set NVIDIA_MODEL to a model listed at https://build.nvidia.com/models."
   );
 }

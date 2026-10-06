@@ -36,9 +36,31 @@ type Handler = (call: Call) => Response | Promise<Response>;
 const realFetch = globalThis.fetch;
 let calls: Call[];
 
+/** Rejects when `signal` aborts, the way real fetch does. */
+const aborted = (signal?: AbortSignal | null) =>
+  new Promise<never>((_, reject) => {
+    if (!signal) return;
+    if (signal.aborted) reject(signal.reason);
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  });
+
+/** A request NIM never answers. */
+const hang = () => new Promise<Response>(() => {});
+
 /** Routes /v1/models to `catalog` (or a 500) and chat calls to `chat`. */
 function mockFetch(chat: Handler, catalog?: string[] | Handler) {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    // AbortSignal.timeout timers are unref'd; a real socket keeps the process
+    // alive while a request is pending, so the mock has to as well.
+    const keepAlive = setInterval(() => {}, 1000);
+    try {
+      return await Promise.race([route(input, init), aborted(init?.signal)]);
+    } finally {
+      clearInterval(keepAlive);
+    }
+  }) as typeof fetch;
+
+  async function route(input: RequestInfo | URL, init?: RequestInit) {
     const url = String(input);
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
     const call: Call = { url, model: body?.model, body };
@@ -49,7 +71,7 @@ function mockFetch(chat: Handler, catalog?: string[] | Handler) {
       return new Response(JSON.stringify({ data: catalog.map((id) => ({ id })) }));
     }
     return chat(call);
-  }) as typeof fetch;
+  }
 }
 
 const chatModels = () => calls.filter((c) => c.model).map((c) => c.model);
@@ -58,11 +80,13 @@ beforeEach(() => {
   calls = [];
   __resetModelCacheForTests();
   delete process.env.NVIDIA_MODEL;
+  delete process.env.NIM_REQUEST_TIMEOUT_MS;
 });
 
 afterEach(() => {
   globalThis.fetch = realFetch;
   delete process.env.NVIDIA_MODEL;
+  delete process.env.NIM_REQUEST_TIMEOUT_MS;
 });
 
 test("410 end-of-life model falls over to the next model instead of failing", async () => {
@@ -180,6 +204,62 @@ test("thinking flag is only sent to DeepSeek models", async () => {
   const [deepseek, llama] = calls.filter((c) => c.model);
   assert.ok(deepseek.body && "chat_template_kwargs" in deepseek.body);
   assert.ok(llama.body && !("chat_template_kwargs" in llama.body));
+});
+
+test("a model that never answers is abandoned for the next one", async () => {
+  process.env.NIM_REQUEST_TIMEOUT_MS = "50";
+  mockFetch((c) => (c.model === DEFAULT_MODELS[0] ? hang() : completion()));
+
+  const result = await analyzeFile("a.ts", "x", "key");
+
+  assert.equal(result.model, DEFAULT_MODELS[1]);
+  assert.deepEqual(chatModels(), [DEFAULT_MODELS[0], DEFAULT_MODELS[1]]);
+});
+
+test("a timed-out model is not blacklisted for the next repo", async () => {
+  process.env.NIM_REQUEST_TIMEOUT_MS = "50";
+  let run = 1;
+  mockFetch((c) => {
+    if (run === 1 && c.model === DEFAULT_MODELS[0]) return hang();
+    if (run === 2 && c.model === DEFAULT_MODELS[1]) return new Response("", { status: 410 });
+    return completion();
+  });
+
+  await analyzeFile("a.ts", "x", "key");
+  run = 2;
+  calls = [];
+  const result = await analyzeFile("b.ts", "y", "key");
+
+  // Last good model goes first; once it's retired the slow one is tried again.
+  assert.deepEqual(chatModels(), [DEFAULT_MODELS[1], DEFAULT_MODELS[0]]);
+  assert.equal(result.model, DEFAULT_MODELS[0]);
+});
+
+test("every model hanging ends in an error, not a hung cron run", async () => {
+  process.env.NIM_REQUEST_TIMEOUT_MS = "20";
+  mockFetch(() => hang());
+
+  await assert.rejects(analyzeFile("a.ts", "x", "key"), /timed out/);
+  assert.equal(chatModels().length, DEFAULT_MODELS.length);
+});
+
+test("no request starts once the deadline is too close", async () => {
+  mockFetch(() => completion());
+
+  await assert.rejects(
+    analyzeFile("a.ts", "x", "key", { deadline: Date.now() + 1000 }),
+    /Out of time budget/
+  );
+  assert.equal(chatModels().length, 0);
+});
+
+test("a stalled catalog lookup falls back to the built-in list", async () => {
+  process.env.NIM_REQUEST_TIMEOUT_MS = "50";
+  mockFetch(() => completion(), () => hang());
+
+  const result = await analyzeFile("a.ts", "x", "key");
+
+  assert.equal(result.model, DEFAULT_MODELS[0]);
 });
 
 test("fenced JSON responses are parsed", async () => {

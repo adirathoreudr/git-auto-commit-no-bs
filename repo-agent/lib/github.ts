@@ -113,7 +113,11 @@ const SKIP_CONFIG = new Set([
 /** Matches config files like next.config.ts, vite.config.js, tailwind.config.mjs. */
 const CONFIG_FILE_RE = /\.config\.(js|ts|mjs|cjs)$/i;
 
-const MAX_FILE_SIZE = 100_000;
+/**
+ * Larger files make for slow, queue-prone NIM requests, and a 30-line chore
+ * edit doesn't need them (~30 KB is roughly 8k tokens).
+ */
+const MAX_FILE_SIZE = 30_000;
 
 function headers(token: string): Record<string, string> {
   return {

@@ -3,11 +3,13 @@ const NVIDIA_MODELS_URL = "https://integrate.api.nvidia.com/v1/models";
 
 /**
  * Models to try, best first. NVIDIA retires model snapshots regularly (410
- * Gone), so a single hardcoded id eventually takes every repo down. Un-dated
- * aliases come first; non-DeepSeek models are a last resort. Set NVIDIA_MODEL
- * to put a specific model at the front without a code change.
+ * Gone), so a single hardcoded id eventually takes every repo down. These are
+ * only preferences: discovery (rankCatalog) also adds whatever DeepSeek and
+ * fallback-family chat models the live catalog lists. Set NVIDIA_MODEL to put
+ * a specific model at the front without a code change.
  */
 export const DEFAULT_MODELS = [
+  "deepseek-ai/deepseek-v4.1-flash",
   "deepseek-ai/deepseek-v4-flash",
   "deepseek-ai/deepseek-v4",
   "deepseek-ai/deepseek-v3.1-terminus",
@@ -53,19 +55,19 @@ const MAX_ATTEMPTS = 3;
 /** Base backoff; delay is BACKOFF_MS * 2^attempt, so ~1s then ~2s. */
 const BACKOFF_MS = 1000;
 /**
- * Per-request ceiling. NIM's free tier can queue a request for minutes; without
- * a cap one slow model eats the whole cron run and Vercel kills it before any
- * repo is logged. NIM_REQUEST_TIMEOUT_MS overrides it.
+ * Responses are streamed so a model is judged on liveness, not total time:
+ * NIM's free tier can queue a request for a long while, and a non-streamed
+ * answer shows nothing until it's complete, so "stuck" and "nearly done" look
+ * identical. A model gets this long to send its first byte...
  */
-const DEFAULT_REQUEST_TIMEOUT_MS = 90_000;
+const DEFAULT_FIRST_TOKEN_TIMEOUT_MS = 75_000;
+/** ...and, once streaming, this long between chunks. */
+const DEFAULT_IDLE_TIMEOUT_MS = 30_000;
 const DISCOVERY_TIMEOUT_MS = 10_000;
 /** Don't start a request with less than this left before the caller's deadline. */
 const MIN_REQUEST_BUDGET_MS = 15_000;
 
-function requestTimeoutMs(deadline?: number): number {
-  const base = Number(process.env.NIM_REQUEST_TIMEOUT_MS) || DEFAULT_REQUEST_TIMEOUT_MS;
-  return deadline === undefined ? base : Math.min(base, deadline - Date.now());
-}
+const envMs = (name: string, fallback: number) => Number(process.env[name]) || fallback;
 
 const outOfTime = (deadline?: number) =>
   deadline !== undefined && deadline - Date.now() < MIN_REQUEST_BUDGET_MS;
@@ -73,6 +75,11 @@ const outOfTime = (deadline?: number) =>
 function isTimeout(e: unknown): boolean {
   const name = (e as { name?: unknown } | null)?.name;
   return name === "TimeoutError" || name === "AbortError";
+}
+
+/** Per-attempt timing in the function logs; silent under the test runner. */
+function logAttempt(msg: string): void {
+  if (!process.env.NODE_TEST_CONTEXT) console.log(`[nim] ${msg}`);
 }
 
 /**
@@ -99,31 +106,81 @@ function isModelUnavailable(status: number, body: string): boolean {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Catalog entries that aren't general chat models. */
+const NON_CHAT =
+  /embed|rerank|guard|safety|reward|vision|vlm|[-_.]vl\d*([-_.]|$)|clip|parse|ocr|asr|tts|whisper|retriever/i;
+
 /**
- * Asks NIM which models exist and keeps our preferred ones that are listed,
- * followed by any other DeepSeek model. Falls back to DEFAULT_MODELS if the
- * catalog can't be read, so discovery never adds a failure mode of its own.
+ * Non-DeepSeek chat families worth falling back to, best first. Matched against
+ * the live catalog, so retired ids never make the list.
+ */
+const FALLBACK_FAMILIES = [
+  /^qwen\/qwen3/i,
+  /^qwen\/qwen2\.5-coder/i,
+  /^openai\/gpt-oss/i,
+  /^meta\/llama-4/i,
+  /^meta\/llama-3\.3/i,
+  /^mistralai\/mistral-large/i,
+  /^mistralai\/mixtral/i,
+  /^nvidia\/.*nemotron/i,
+];
+const MAX_FALLBACK_MODELS = 4;
+
+/** Small legacy checkpoints (e.g. deepseek-coder-6.7b) are poor fallbacks. */
+function isSmallModel(id: string): boolean {
+  const size = id.match(/(\d+(?:\.\d+)?)b(?![a-z])/i);
+  return !!size && Number(size[1]) < 30;
+}
+
+/**
+ * Orders the live catalog: our preferred models that are listed, then other
+ * DeepSeek chat models, then one model from each fallback family.
+ */
+export function rankCatalog(ids: Iterable<string>): string[] {
+  // Newest-looking ids first, but always-reasoning variants last: they're slow
+  // and wrap their output in thoughts, which is the opposite of what we want.
+  const slow = (id: string) => (/thinking|reason/i.test(id) ? 1 : 0);
+  const chat = [...new Set(ids)]
+    .filter((id) => !NON_CHAT.test(id))
+    .sort()
+    .reverse()
+    .sort((a, b) => slow(a) - slow(b));
+  const preferred = DEFAULT_MODELS.filter((m) => chat.includes(m));
+  const deepseek = chat.filter(
+    (id) => id.startsWith("deepseek-ai/") && !preferred.includes(id) && !isSmallModel(id)
+  );
+  const fallbacks: string[] = [];
+  for (const family of FALLBACK_FAMILIES) {
+    if (fallbacks.length >= MAX_FALLBACK_MODELS) break;
+    const match = chat.find(
+      (id) => family.test(id) && !preferred.includes(id) && !fallbacks.includes(id)
+    );
+    if (match) fallbacks.push(match);
+  }
+  return [...preferred, ...deepseek, ...fallbacks];
+}
+
+/**
+ * Asks NIM which models exist and ranks them. Falls back to DEFAULT_MODELS if
+ * the catalog can't be read, so discovery never adds a failure mode of its own.
  */
 async function discoverModels(apiKey: string, deadline?: number): Promise<string[]> {
   if (discoveredModels) return discoveredModels;
+  const timeoutMs =
+    deadline === undefined
+      ? envMs("NIM_DISCOVERY_TIMEOUT_MS", DISCOVERY_TIMEOUT_MS)
+      : Math.max(1, Math.min(envMs("NIM_DISCOVERY_TIMEOUT_MS", DISCOVERY_TIMEOUT_MS), deadline - Date.now()));
   try {
     const res = await fetch(NVIDIA_MODELS_URL, {
       headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(
-        Math.max(1, Math.min(DISCOVERY_TIMEOUT_MS, requestTimeoutMs(deadline)))
-      ),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) return DEFAULT_MODELS;
     const data = (await res.json()) as { data?: { id?: unknown }[] };
-    const ids = new Set(
-      (data.data ?? []).map((m) => m.id).filter((id): id is string => typeof id === "string")
-    );
-    const preferred = DEFAULT_MODELS.filter((m) => ids.has(m));
-    const otherDeepSeek = [...ids]
-      .filter((id) => id.startsWith("deepseek-ai/") && !preferred.includes(id))
-      .sort()
-      .reverse();
-    const models = [...preferred, ...otherDeepSeek];
+    const ids = (data.data ?? [])
+      .map((m) => m.id)
+      .filter((id): id is string => typeof id === "string");
+    const models = rankCatalog(ids);
     if (models.length === 0) return DEFAULT_MODELS;
     discoveredModels = models;
     return models;
@@ -140,19 +197,62 @@ async function candidateModels(apiKey: string, deadline?: number): Promise<strin
   );
 }
 
+/** Reasoning models' "thinking off" switch: DeepSeek reads `thinking`, Qwen3 `enable_thinking`. */
+function templateKwargs(model: string) {
+  return model.startsWith("deepseek-ai/") || model.startsWith("qwen/")
+    ? { chat_template_kwargs: { thinking: false, enable_thinking: false } }
+    : {};
+}
+
+/**
+ * Pulls the completion out of a body that is either an SSE stream of
+ * `chat.completion.chunk`s or, for a model that ignored `stream`, plain JSON.
+ * Reasoning deltas (`reasoning_content`) are deliberately dropped.
+ */
+function extractContent(body: string): { content: string; error?: string } {
+  const trimmed = body.trim();
+  if (trimmed.startsWith("{")) {
+    const data = JSON.parse(trimmed) as {
+      choices?: { message?: { content?: string } }[];
+    };
+    return { content: data.choices?.[0]?.message?.content ?? "" };
+  }
+
+  let content = "";
+  for (const line of body.split("\n")) {
+    if (!line.startsWith("data:")) continue;
+    const payload = line.slice(5).trim();
+    if (!payload || payload === "[DONE]") continue;
+    const chunk = JSON.parse(payload) as {
+      error?: unknown;
+      choices?: { delta?: { content?: string | null } }[];
+    };
+    if (chunk.error) return { content, error: JSON.stringify(chunk.error) };
+    content += chunk.choices?.[0]?.delta?.content ?? "";
+  }
+  return { content };
+}
+
 type ModelOutcome =
   | { kind: "ok"; raw: string }
   | { kind: "unavailable"; error: string }
   | { kind: "timeout"; error: string }
   | { kind: "failed"; error: string };
 
+interface CallLimits {
+  deadline?: number;
+  /** Max wait for the first byte; clipped to the deadline. */
+  firstTokenMs: number;
+}
+
 /** One model, with retries for transient upstream failures. */
 async function callModel(
   model: string,
   apiKey: string,
   userPrompt: string,
-  deadline?: number
+  { deadline, firstTokenMs }: CallLimits
 ): Promise<ModelOutcome> {
+  const idleMs = envMs("NIM_IDLE_TIMEOUT_MS", DEFAULT_IDLE_TIMEOUT_MS);
   let lastError = "";
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -161,16 +261,40 @@ async function callModel(
       return { kind: "failed", error: `${lastError} (out of time budget for retries)` };
     }
 
-    const timeoutMs = requestTimeoutMs(deadline);
-    let ok: boolean;
-    let status: number;
-    let text: string;
+    // One controller, re-armed as the response progresses: first-byte wait,
+    // then the idle gap between chunks — never past the deadline.
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timeoutReason = "";
+    const arm = (ms: number, reason: string) => {
+      clearTimeout(timer);
+      const capped = deadline === undefined ? ms : Math.min(ms, deadline - Date.now());
+      timeoutReason = capped < ms ? "hit the run's time budget" : reason;
+      timer = setTimeout(
+        () => controller.abort(new DOMException(timeoutReason, "TimeoutError")),
+        Math.max(0, capped)
+      );
+    };
+    const aborted = new Promise<never>((_, reject) =>
+      controller.signal.addEventListener("abort", () => reject(controller.signal.reason), {
+        once: true,
+      })
+    );
+    aborted.catch(() => {});
+
+    const started = Date.now();
+    let firstByteAt: number | undefined;
+    let ok = false;
+    let status = 0;
+    let text = "";
     try {
+      arm(firstTokenMs, `no response within ${Math.round(firstTokenMs / 1000)}s`);
       const res = await fetch(NVIDIA_NIM_URL, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
+          Accept: "text/event-stream",
         },
         body: JSON.stringify({
           model,
@@ -180,29 +304,52 @@ async function callModel(
           ],
           temperature: 0.15,
           // Diffs are capped at 30 lines; a smaller ceiling keeps slow
-          // generations from running into the request timeout.
+          // generations short.
           max_tokens: 2048,
+          stream: true,
           // Non-think mode: fast, deterministic output without reasoning
-          // preambles polluting the JSON payload. DeepSeek-specific template
-          // flag, so other fallback models don't get it.
-          ...(model.startsWith("deepseek-ai/")
-            ? { chat_template_kwargs: { thinking: false } }
-            : {}),
+          // preambles polluting the JSON payload.
+          ...templateKwargs(model),
         }),
-        // Covers the body read too, so a stalled stream can't hang the run.
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: controller.signal,
       });
       ok = res.ok;
       status = res.status;
-      text = await res.text();
+
+      if (res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        try {
+          for (;;) {
+            // Racing the abort keeps a stalled body from hanging the read even
+            // where the stream isn't wired to the request's signal.
+            const { value, done } = await Promise.race([reader.read(), aborted]);
+            if (done) break;
+            if (firstByteAt === undefined) firstByteAt = Date.now();
+            text += decoder.decode(value, { stream: true });
+            if (/^data:\s*\[DONE\]/m.test(text)) break;
+            arm(idleMs, `stream stalled for ${Math.round(idleMs / 1000)}s`);
+          }
+        } finally {
+          reader.cancel().catch(() => {});
+        }
+      }
     } catch (e) {
       if (isTimeout(e)) {
-        return { kind: "timeout", error: `timed out after ${Math.round(timeoutMs / 1000)}s` };
+        const reason = firstByteAt === undefined ? timeoutReason : `${timeoutReason} mid-stream`;
+        logAttempt(`${model}: timeout (${reason}) after ${Date.now() - started}ms`);
+        return { kind: "timeout", error: `timed out: ${reason}` };
       }
       // Network-level failure (DNS, socket reset) — worth another attempt.
       lastError = `NVIDIA NIM request failed: ${e instanceof Error ? e.message : String(e)}`;
+      logAttempt(`${model}: ${lastError}`);
       continue;
+    } finally {
+      clearTimeout(timer);
     }
+
+    const ttfb = firstByteAt === undefined ? "-" : `${firstByteAt - started}ms`;
+    logAttempt(`${model}: HTTP ${status} ttfb=${ttfb} total=${Date.now() - started}ms`);
 
     if (!ok) {
       lastError = `NVIDIA NIM API ${status}: ${text}`;
@@ -213,22 +360,24 @@ async function callModel(
       throw new Error(lastError);
     }
 
-    let data: { choices?: { message?: { content?: string } }[] };
+    let extracted: { content: string; error?: string };
     try {
-      data = JSON.parse(text);
+      extracted = extractContent(text);
     } catch {
       lastError = `Malformed response from ${model}: ${text.slice(0, 200)}`;
       continue;
     }
-
-    const raw = data.choices?.[0]?.message?.content;
-    if (!raw) {
+    if (extracted.error) {
+      lastError = `NVIDIA NIM stream error from ${model}: ${extracted.error}`;
+      continue;
+    }
+    if (!extracted.content) {
       // Occasionally NIM returns 200 with no completion; treat as transient.
       lastError = `Empty response from ${model}`;
       continue;
     }
 
-    return { kind: "ok", raw };
+    return { kind: "ok", raw: extracted.content };
   }
 
   return { kind: "failed", error: `${lastError} (after ${MAX_ATTEMPTS} attempts)` };
@@ -254,15 +403,13 @@ export async function analyzeFile(
   }
 
   const userPrompt = `File: ${filePath}\n\n\`\`\`\n${fileContent}\n\`\`\``;
+  const firstTokenMs = envMs("NIM_FIRST_TOKEN_TIMEOUT_MS", DEFAULT_FIRST_TOKEN_TIMEOUT_MS);
   const tried: string[] = [];
+  const timedOut: string[] = [];
   const triedSummary = () => tried.join(", ") || "none";
 
-  for (const model of await candidateModels(apiKey, deadline)) {
-    if (outOfTime(deadline)) {
-      throw new Error(`Out of time budget (cron limit). Tried: ${triedSummary()}.`);
-    }
-
-    const outcome = await callModel(model, apiKey, userPrompt, deadline);
+  const attempt = async (model: string, limits: CallLimits) => {
+    const outcome = await callModel(model, apiKey, userPrompt, limits);
 
     if (outcome.kind === "ok") {
       lastGoodModel = model;
@@ -271,11 +418,32 @@ export async function analyzeFile(
     if (outcome.kind === "failed") throw new Error(outcome.error);
 
     tried.push(`${model} (${outcome.error})`);
-    // A slow model may be fine next time; only a retired/unknown one is
-    // remembered so later repos in this run skip it.
-    if (outcome.kind === "unavailable") {
+    if (outcome.kind === "timeout") {
+      // A slow model may well answer given more time; see the second pass.
+      timedOut.push(model);
+    } else {
+      // Retired/unknown: remember it so later repos in this run skip it.
       deadModels.add(model);
       if (lastGoodModel === model) lastGoodModel = null;
+    }
+    return null;
+  };
+
+  for (const model of await candidateModels(apiKey, deadline)) {
+    if (outOfTime(deadline)) {
+      throw new Error(`Out of time budget (cron limit). Tried: ${triedSummary()}.`);
+    }
+    const result = await attempt(model, { deadline, firstTokenMs });
+    if (result) return result;
+  }
+
+  // Everything else is exhausted but there may be plenty of the run left:
+  // give the models that were merely slow the rest of it, best first.
+  if (deadline !== undefined) {
+    for (const model of timedOut) {
+      if (outOfTime(deadline)) break;
+      const result = await attempt(model, { deadline, firstTokenMs: Infinity });
+      if (result) return result;
     }
   }
 
